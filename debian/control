@@ -1,0 +1,14 @@
+Source: python-wshttpd
+Section: python
+Priority: optional
+Maintainer: Bas Wijnen <wijnen@debian.org>
+Build-Depends: debhelper (>= 9), python, python-support
+Standards-Version: 3.9.4
+
+Package: python-wshttpd
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}, python-network
+Description: python module for creating a http server which uses WebSockets
+ This module uses the network module to create a server, and implements http(s)
+ and WebSockets over those connections.  With only 6 lines of code you have a
+ working system.  You only have to add what you want your server to do.

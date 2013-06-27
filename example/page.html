@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv='Content-Type: text/html;encoding=utf-8'/>
+<title>Test server</title>
+<script type='text/javascript'>
+var ws;
+function init ()
+{
+	ws = WebSocket ('wss://HOSTNAME');
+	ws.onmessage = message;
+}
+
+function message (data)
+{
+	var div = document.getElementById ('div');
+	var p = document.createElement ('p');
+	p.appendChild (document.createTextNode (data.data));
+	div.appendChild (p);
+}
+
+function talk ()
+{
+	var input = document.getElementById ('input');
+	ws.send (input.value);
+	input.value = '';
+}
+</script>
+</head>
+<body onload='init ()'>
+<div id='div'></div>
+<input type='text' id='input' onchange='talk ()'/>
+</body>
+</html>
