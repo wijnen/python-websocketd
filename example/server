@@ -32,6 +32,8 @@ clients = {}
 class Connection (wshttpd.Wshttpd): # {{{
 	# By defining this as a function, it can require authentication for
 	# some connections only.  In this case, only for the websockets.
+	# It can also be defined as a str, which makes authentication required
+	# for all connections.
 	def auth_message (self, is_websocket): # {{{
 		if not is_websocket:
 			return None
@@ -71,8 +73,7 @@ class Connection (wshttpd.Wshttpd): # {{{
 	# This function is called when a non-websocket page is requested.
 	def page (self): # {{{
 		# Don't even check the path; always reply with the same page.
-		data = open ('page.html').read ().replace ('HOSTNAME', self.headers['Host'])
-		self.reply (200, data, {'Content-Type': 'text/html;encoding=utf-8'})
+		self.reply_html (open ('page.html').read ())
 	# }}}
 # }}}
 

@@ -21,6 +21,7 @@
 # imports.  {{{
 import network
 import os
+import re
 import sys
 import urlparse
 import urllib
@@ -74,26 +75,22 @@ class Wshttpd:	# {{{
 			if 'Authorization' not in self.headers:
 				self.reply (401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
 				if 'Content-Length' not in self.headers or self.headers['Content-Length'].strip () != '0':
-					self._is_closed = True
 					self.socket.close ()
 				return
 			else:
 				auth = self.headers['Authorization'].split (None, 1)
 				if auth[0] != 'Basic':
 					self.reply (400)
-					self._is_closed = True
 					self.socket.close ()
 					return
 				data = base64.b64decode (auth[1]).split (':', 1)
 				if len (data) != 2:
 					self.reply (400)
-					self._is_closed = True
 					self.socket.close ()
 					return
 				if not self.authenticate (data[0], data[1]):
 					self.reply (401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
 					if 'Content-Length' not in self.headers or self.headers['Content-Length'].strip () != '0':
-						self._is_closed = True
 						self.socket.close ()
 					return
 		if not is_websocket:
@@ -103,7 +100,6 @@ class Wshttpd:	# {{{
 			except:
 				sys.stderr.write ('exception: %s\n' % repr (sys.exc_value))
 				self.reply (500)
-			self._is_closed = True
 			self.socket.close ()
 			return
 		# Websocket.
@@ -113,12 +109,13 @@ class Wshttpd:	# {{{
 			return
 		newkey = base64.b64encode (hashlib.sha1 (self.headers['Sec-WebSocket-Key'].strip () + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest ())
 		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
-		self.reply (101, '', headers)
+		self.reply (101, None, None, headers)
 		self.websocket_buffer = ''
 		self.websocket_fragments = ''
 		def disconnect (data):
-			self._is_closed = True
-			self.closed ()
+			if not self._is_closed:
+				self._is_closed = True
+				self.closed ()
 			return ''
 		self.socket.disconnect_cb (disconnect)
 		self.socket.read (self._websocket_read)
@@ -129,7 +126,6 @@ class Wshttpd:	# {{{
 		if ord (self.websocket_buffer[0]) & 0x70:
 			# Protocol error.
 			print 'extension stuff, not supported!'
-			self._is_closed = True
 			self.socket.close ()
 			return
 		if len (self.websocket_buffer) < 2:
@@ -140,7 +136,6 @@ class Wshttpd:	# {{{
 		if b & 0x80:
 			# Protocol error.
 			print 'no mask'
-			self._is_closed = True
 			self.socket.close ()
 			return
 		if b == 126 and len (self.websocket_buffer) < 4:
@@ -174,7 +169,6 @@ class Wshttpd:	# {{{
 			if opcode != 0:
 				# Protocol error.
 				print 'invalid fragment'
-				self._is_closed = True
 				self.socket.close ()
 				return
 			self.websocket_fragments += data
@@ -206,22 +200,56 @@ class Wshttpd:	# {{{
 			self.recv (data)
 			return
 	# }}}
+	def _reply_websocket (self, message, websocket, content_type):	# {{{
+		m = ''
+		e = 0
+		protocol = 'wss://' if hasattr (self.socket.socket, 'ssl_version') else 'ws://'
+		host = self.headers['Host']
+		for match in re.finditer (websocket, message):
+			g = match.groups ()
+			if len (g) > 0 and g[0]:
+				extra = ' + ' + g[0]
+			else:
+				extra = ''
+			m += message[e:match.start ()] + '''function () {
+		if (window.hasOwnProperty ('MozWebSocket'))
+			return new MozWebSocket ('%s%s'%s);
+		else
+			return new WebSocket ('%s%s'%s);
+	} ()''' % (protocol, host, extra, protocol, host, extra)
+			e = match.end ()
+		m += message[e:]
+		self.reply (200, m, content_type)
+	# }}}
 	# }}}
 	# The following functions can be called by the program.
-	def reply (self, code, message = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
+	def reply_html (self, message, websocket = r'#WEBSOCKET(?:\+(.*?))?#'):	# {{{
+		self._reply_websocket (message, websocket, 'text/html;charset=utf8')
+	# }}}
+	def reply_js (self, message, websocket = r'#WEBSOCKET(?:\+(.*?))#'):	# {{{
+		self._reply_websocket (message, websocket, 'application/javascript;charset=utf8')
+	# }}}
+	def reply_css (self, message):	# {{{
+		self.reply (200, message, 'text/css;charset=utf8')
+	# }}}
+	def reply (self, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
 		assert code in known_codes
 		#sys.stderr.write ('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], self.address.path))
 		if self._is_closed:
 			return
 		self.socket.send ('HTTP/1.1 %d %s\r\n' % (code, known_codes[code]))
 		if headers is None:
-			headers = {'Content-Type': 'text/html;charset=utf-8'}
-			if message is not None:
-				headers['Content-Length'] = len (message)
-		if message is None:
-			headers['Content-Type'] = 'text/html;charset=utf-8'
-			message = '<!DOCTYPE html><html><head><meta http-equiv="Content-type: text/html;charset=utf-8"/><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code])
+			headers = {}
+		if message is None and code != 101:
+			assert content_type is None
+			content_type = 'text/html;charset=utf-8'
+			message = '<!DOCTYPE html><html><head><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code])
+		if content_type is not None:
+			headers['Content-Type'] = content_type
 			headers['Content-Length'] = len (message)
+		else:
+			assert code == 101
+			message = ''
 		self.socket.send (''.join (['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n' + message)
 	# }}}
 	def send (self, data, opcode = 1):	# Send a WebSocket frame.  {{{
@@ -239,12 +267,9 @@ class Wshttpd:	# {{{
 		try:
 			self.socket.send (chr (0x80 | opcode) + l + data)
 		except:
-			# Something went wrong; close the socket.
-			self._is_closed = True
-			self.socket.close ()	# possibly not required.
-			self.closed ()
+			# Something went wrong; close the socket (in case it wasn't yet).
+			self.socket.close ()
 		if opcode == 8:
-			self._is_closed = True
 			self.socket.close ()
 	# }}}
 	def ping (self, data = ''): # Send a ping; return False if no pong was seen for previous ping.  {{{
@@ -257,7 +282,6 @@ class Wshttpd:	# {{{
 	def close (self):	# Close a WebSocket.  (Use self.socket.close for other connections.)  {{{
 		self.send ('', 8)
 		self.socket.close ()
-		self._is_closed = True
 	# }}}
 	# The following functions should be overridden by the program if they should do something useful.
 	def opened (self):	# A new WebSocket was opened.  {{{
