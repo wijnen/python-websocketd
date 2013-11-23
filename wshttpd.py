@@ -193,7 +193,7 @@ class Wshttpd:	# {{{
 			return
 		if opcode == 1:
 			# Text.
-			self.recv (unicode (data, 'utf-8'))
+			self.recv (unicode (data, 'utf-8', 'replace'))
 			return
 		if opcode == 2:
 			# Binary.
@@ -226,7 +226,7 @@ class Wshttpd:	# {{{
 	def reply_html (self, message, websocket = r'#WEBSOCKET(?:\+(.*?))?#'):	# {{{
 		self._reply_websocket (message, websocket, 'text/html;charset=utf8')
 	# }}}
-	def reply_js (self, message, websocket = r'#WEBSOCKET(?:\+(.*?))#'):	# {{{
+	def reply_js (self, message, websocket = r'#WEBSOCKET(?:\+(.*?))?#'):	# {{{
 		self._reply_websocket (message, websocket, 'application/javascript;charset=utf8')
 	# }}}
 	def reply_css (self, message):	# {{{
