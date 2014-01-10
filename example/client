@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import wshttpd
+import glib
 
 class Reader:
 	def __init__ (self, socket):
@@ -9,6 +10,10 @@ class Reader:
 		wshttpd.endloop ()
 
 c = wshttpd.RPCWebsocket (8000, Reader, tls = None)
-print c.a ()
+
+# Use an idle handler, because endloop must not be called before fgloop.
+def later ():
+	print c.a ()
+glib.idle_add (later)
 
 wshttpd.fgloop ()

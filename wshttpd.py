@@ -106,33 +106,33 @@ Sec-WebSocket-Key: 0\r
 			self._websocket_read (hdrdata)
 	# }}}
 	def _websocket_read (self, data, sync = False):	# {{{
-		print repr (data)
+		#print ('received: ' + repr (data))
 		self.websocket_buffer += data
 		if ord (self.websocket_buffer[0]) & 0x70:
-			print (repr (self.websocket_buffer))
+			#print (repr (self.websocket_buffer))
 			# Protocol error.
-			print 'extension stuff, not supported!'
+			print ('extension stuff, not supported!')
 			self.socket.close ()
 			return None
 		if len (self.websocket_buffer) < 2:
 			# Not enough data for length bytes.
-			print 'no length yet'
+			print ('no length yet')
 			return None
 		b = ord (self.websocket_buffer[1])
 		have_mask = bool (b & 0x80)
 		b &= 0x7f
 		if have_mask and self.mask[0] is True or not have_mask and self.mask[0] is False:
 			# Protocol error.
-			print 'mask error'
+			print ('mask error')
 			self.socket.close ()
 			return None
 		if b == 126 and len (self.websocket_buffer) < 4:
 			# Not enough data for length bytes.
-			print 'no 2 length yet'
+			print ('no 2 length yet')
 			return None
 		if b == 127 and len (self.websocket_buffer) < 10:
 			# Not enough data for length bytes.
-			print 'no 4 length yet'
+			print ('no 4 length yet')
 			return None
 		if b == 127:
 			l = struct.unpack ('!Q', self.websocket_buffer[2:10])[0]
@@ -145,7 +145,7 @@ Sec-WebSocket-Key: 0\r
 			pos = 2
 		if len (self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
 			# Not enough data for packet.
-			print 'no packet yet'
+			print ('no packet yet')
 			return None
 		opcode = ord (self.websocket_buffer[0]) & 0xf
 		if have_mask:
@@ -162,11 +162,11 @@ Sec-WebSocket-Key: 0\r
 			# fragment found; not last.
 			if opcode != 0:
 				# Protocol error.
-				print 'invalid fragment'
+				print ('invalid fragment')
 				self.socket.close ()
 				return None
 			self.websocket_fragments += data
-			print 'fragment recorded'
+			print ('fragment recorded')
 			return None
 		# Complete frame has been received.
 		self.websocket_buffer = ''
@@ -187,12 +187,12 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 1:
 			# Text.
 			data = unicode (data, 'utf-8', 'replace')
-			print 'text'
+			#print ('text')
 			if sync:
-				print 'sync'
+				#print ('sync')
 				return data
 			if self.recv:
-				print 'async'
+				#print ('async')
 				self.recv (self, data)
 			else:
 				print ('warning: ignoring incoming websocket frame')
@@ -206,6 +206,7 @@ Sec-WebSocket-Key: 0\r
 				print ('warning: ignoring incoming websocket frame (binary)')
 	# }}}
 	def send (self, data, opcode = 1):	# Send a WebSocket frame.  {{{
+		#print ('websend:' + repr (data))
 		assert opcode in (0, 1, 2, 8, 9, 10)
 		if self._is_closed:
 			return None
@@ -254,7 +255,8 @@ Sec-WebSocket-Key: 0\r
 class RPCWebsocket (Websocket): # {{{
 	def __init__ (self, port, recv = None, *a, **ka): # {{{
 		Websocket.__init__ (self, port, recv = RPCWebsocket.recv, *a, **ka)
-		self.target = recv (self) if recv else None
+		self.target = recv (self) if recv is not None else None
+		#print ('init:' + repr (recv) + ',' + repr (self.target))
 	# }}}
 	class wrapper: # {{{
 		def __init__ (self, base, attr): # {{{
@@ -280,6 +282,7 @@ class RPCWebsocket (Websocket): # {{{
 		# }}}
 	# }}}
 	def send (self, type, object): # {{{
+		#print ('sending:' + repr (type) + repr (object))
 		Websocket.send (self, json.dumps ((type, object)))
 	# }}}
 	def parse_frame (self, frame): # {{{
@@ -299,15 +302,16 @@ class RPCWebsocket (Websocket): # {{{
 		return data
 	# }}}
 	def recv (self, frame): # {{{
-		print 'recv'
+		#print ('recv/' + repr (self.target))
 		data = self.parse_frame (frame)
-		print data
+		#print data
 		if data[0] is None:
 			return
 		elif data[0] == 'error':
 			raise ValueError (data[1])
 		try:
 			if data[0] == 'call':
+				#print (repr (self.target) + repr (data))
 				self.send ('return', getattr (self.target, data[1][0]) (*data[1][1], **data[1][2]))
 			elif data[0] == 'event':
 				getattr (self.target, data[1][0]) (*data[1][1], **data[1][2])
@@ -326,10 +330,10 @@ class RPCWebsocket (Websocket): # {{{
 if network.have_glib: # {{{
 	class Httpd_connection:	# {{{
 		# Internal functions.  {{{
-		def __init__ (self, server, socket, httpdir, websocket = Websocket): # {{{
+		def __init__ (self, server, socket, httpdirs, websocket = Websocket): # {{{
 			self.server = server
 			self.socket = socket
-			self.httpdir = httpdir
+			self.httpdirs = httpdirs
 			self.websocket = websocket
 			self.headers = {}
 			self.address = None
@@ -454,9 +458,9 @@ if network.have_glib: # {{{
 			self.socket.send (''.join (['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n' + message)
 		# }}}
 		# }}}
-		# If httpdir is not given, or special handling is desired, this can be overloaded.
+		# If httpdirs is not given, or special handling is desired, this can be overloaded.
 		def page (self):	# A non-WebSocket page was requested.  Use self.address, self.method, self.query, self.headers and self.body (which may be incomplete) to find out more.  {{{
-			if self.httpdir is None:
+			if self.httpdirs is None:
 				self.reply (501)
 				return
 			if self.address.path == '/':
@@ -473,16 +477,23 @@ if network.have_glib: # {{{
 				if ext not in self.exts:
 					self.reply (404)
 					return
-				filename = os.path.join (self.httpdir, base + os.extsep + ext)
-				if not os.path.exists (filename):
+				for d in self.httpdirs:
+					filename = os.path.join (d, base + os.extsep + ext)
+					if os.path.exists (filename):
+						break
+				else:
 					self.reply (404)
 					return
 			else:
 				base = address
 				for ext in self.exts:
-					filename = os.path.join (self.httpdir, base + os.extsep + ext)
-					if os.path.exists (filename):
-						break
+					for d in self.httpdirs:
+						filename = os.path.join (d, base + os.extsep + ext)
+						if os.path.exists (filename):
+							break
+					else:
+						continue
+					break
 				else:
 					self.reply (404)
 					return
@@ -490,12 +501,12 @@ if network.have_glib: # {{{
 		# }}}
 	# }}}
 	class Httpd: # {{{
-		def __init__ (self, port, recv = None, http_connection = Httpd_connection, httpdir = None, server = None, *a, **ka): # {{{
+		def __init__ (self, port, recv = None, http_connection = Httpd_connection, httpdirs = None, server = None, *a, **ka): # {{{
 			self.recv = recv
 			self.http_connection = http_connection
-			self.httpdir = httpdir
+			self.httpdirs = httpdirs
 			self.websocket_re = r'#WEBSOCKET(?:\+(.*?))?#'
-			# Initial extensions which are handled from httpdir; others can be added by the user.
+			# Initial extensions which are handled from httpdirs; others can be added by the user.
 			self.exts = {
 					'html': http_connection.reply_html,
 					'js': http_connection.reply_js,
@@ -508,7 +519,7 @@ if network.have_glib: # {{{
 				self.server = server
 		# }}}
 		def __call__ (self, socket): # {{{
-			return self.http_connection (self, socket, self.httpdir)
+			return self.http_connection (self, socket, self.httpdirs)
 		# }}}
 		def handle_ext (ext, mime): # {{{
 			self.exts[ext] = lambda socket, message: http_connection.reply (socket, 200, message, mime)

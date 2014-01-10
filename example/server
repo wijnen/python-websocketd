@@ -27,10 +27,10 @@ if False:
 	s = wshttpd.Httpd (8000, Connection)
 else:
 	class Class:
-		def __init__ (self, socket):
-			self.socket = socket
+		def __init__ (self, remote):
+			self.remote = remote
 		def a (self):
-			self.socket.quit ()
+			self.remote.quit ()
 			return 5
 	s = wshttpd.RPChttpd (8000, Class)
 
