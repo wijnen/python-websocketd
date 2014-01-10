@@ -16,74 +16,23 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # }}}
 
-# This is a simple chat room which uses WebSockets to work.
-# For entering the username, it uses HTTP authentication.  This is not how you
-# would normally want to implement this, but it works nicely for showing how
-# the authentication mechanism works.
-
 import wshttpd
-import network
 
-# Pool of currently connected clients.
-clients = {}
+if False:
+	class Connection (wshttpd.Connection):
+		def recv (self, frame):
+			print (frame)
+			self.send (frame)
 
-# Create a class for managing the httpd connections.
-# It must derive from wshttpd.wshttpd.
-class Connection (wshttpd.Wshttpd): # {{{
-	# By defining this as a function, it can require authentication for
-	# some connections only.  In this case, only for the websockets.
-	# It can also be defined as a str, which makes authentication required
-	# for all connections.
-	def auth_message (self, is_websocket): # {{{
-		if not is_websocket:
-			return None
-		return 'Please enter a username; use 42 as password.'
-	# }}}
-	# This is called when a user tries to authenticate.
-	def authenticate (self, user, password): # {{{
-		self.user = user
-		return password == '42'
-	# }}}
-	# This is called when a new WebSocket is opened.  self is the object
-	# managing the connection.
-	def opened (self): # {{{
-		while self.user in clients:
-			self.user += '_'
-		self.send ('Present: %s' % ', '.join (clients.keys ()))
-		clients[self.user] = self
-		self.broadcast ('%s entered.' % self.user)
-	# }}}
-	# This is called when a WebSocket frame has arrived on this connection.
-	def recv (self, data): # {{{
-		self.broadcast ('%s: %s' % (self.user, data))
-	# }}}
-	# This is called when this WebSocket is closed.
-	def closed (self): # {{{
-		del clients[self.user]
-		self.broadcast ('%s left.' % self.user)
-	# }}}
-	# A custom function for sending a message to all currently active
-	# WebSockets.
-	def broadcast (self, data): # {{{
-		# Debug to terminal as well.
-		print ('broadcast: %s' % data)
-		for c in clients:
-			clients[c].send (data)
-	# }}}
-	# This function is called when a non-websocket page is requested.
-	def page (self): # {{{
-		# Don't even check the path; always reply with the same page.
-		self.reply_html (open ('page.html').read ())
-	# }}}
-# }}}
+	s = wshttpd.Httpd (8000, Connection)
+else:
+	class Class:
+		def __init__ (self, socket):
+			self.socket = socket
+		def a (self):
+			self.socket.quit ()
+			return 5
+	s = wshttpd.RPChttpd (8000, Class)
 
-# Start a network server using the connection manager class.
-# Use the key and certificate from tls.pem.  You need to create this!
-# Creation is possible with:
-# openssl req -new -x509 -days 365 -nodes -out cert.pem -keyout cert.pem
-# Make sure you use the web server name that you host this on as the "Common
-# Name".  If the page will be on http://www.example.com/path/to/page.html, the
-# Common name should be www.example.com.
-s = network.Server (8000, Connection, tls = 'tls.pem')
-# Foreground loop; run forever.
-network.fgloop ()
+print ('running')
+wshttpd.fgloop ()
