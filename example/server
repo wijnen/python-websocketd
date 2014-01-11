@@ -32,7 +32,7 @@ else:
 		def a (self):
 			self.remote.quit ()
 			return 5
-	s = wshttpd.RPChttpd (8000, Class)
+	s = wshttpd.RPChttpd (8000, Class, httpdirs = ('.',))
 
 wshttpd.log ('running')
 wshttpd.fgloop ()

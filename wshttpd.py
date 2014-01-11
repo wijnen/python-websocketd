@@ -109,7 +109,6 @@ Sec-WebSocket-Key: 0\r
 		#log ('received: ' + repr (data))
 		self.websocket_buffer += data
 		if ord (self.websocket_buffer[0]) & 0x70:
-			#log (repr (self.websocket_buffer))
 			# Protocol error.
 			log ('extension stuff, not supported!')
 			self.socket.close ()
@@ -126,18 +125,18 @@ Sec-WebSocket-Key: 0\r
 			log ('mask error')
 			self.socket.close ()
 			return None
-		if b == 126 and len (self.websocket_buffer) < 4:
-			# Not enough data for length bytes.
-			log ('no 2 length yet')
-			return None
-		if b == 127 and len (self.websocket_buffer) < 10:
-			# Not enough data for length bytes.
-			log ('no 4 length yet')
-			return None
 		if b == 127:
+			if len (self.websocket_buffer) < 10:
+				# Not enough data for length bytes.
+				log ('no 4 length yet')
+				return None
 			l = struct.unpack ('!Q', self.websocket_buffer[2:10])[0]
 			pos = 10
 		elif b == 126:
+			if len (self.websocket_buffer) < 4:
+				# Not enough data for length bytes.
+				log ('no 2 length yet')
+				return None
 			l = struct.unpack ('!H', self.websocket_buffer[2:4])[0]
 			pos = 4
 		else:
@@ -274,8 +273,9 @@ class RPCWebsocket (Websocket): # {{{
 				ret = self.base.parse_frame (data)
 				if ret[0] == 'return':
 					return ret[1]
-				# Async event crossed our call; respond to it.
-				self.base.recv (self.base, data)
+				# Async event crossed our call; respond to it if it's valid.
+				if ret[0] is not None:
+					self.base.recv (self.base, data, ret)
 		# }}}
 		def __getitem__ (self, *a, **ka): # {{{
 			self.base.send ('event', (self.attr, a, ka))
@@ -286,8 +286,12 @@ class RPCWebsocket (Websocket): # {{{
 		Websocket.send (self, json.dumps ((type, object)))
 	# }}}
 	def parse_frame (self, frame): # {{{
-		# Don't choke on Chrome's junk at the end of packets.
-		data = json.JSONDecoder ().raw_decode (frame)[0]
+		try:
+			# Don't choke on Chrome's junk at the end of packets.
+			data = json.JSONDecoder ().raw_decode (frame)[0]
+		except ValueError:
+			log ('non-json frame: %s' % repr (frame))
+			return (None, 'non-json frame')
 		if type (data) is not list or len (data) != 2 or type (data[0]) is not unicode:
 			log ('invalid frame %s' % repr (data))
 			return (None, 'invalid frame')
@@ -296,22 +300,19 @@ class RPCWebsocket (Websocket): # {{{
 				log ('invalid call or event frame %s' % repr (data))
 				return (None, 'invalid frame')
 		elif data[0] not in (u'error', u'return'):
-			#self.send ('error', 'invalid frame')
 			log ('invalid frame type %s' % repr (data))
 			return (None, 'invalid frame')
 		return data
 	# }}}
-	def recv (self, frame): # {{{
-		#log ('recv/' + repr (self.target))
-		data = self.parse_frame (frame)
-		#log data
+	def recv (self, frame, data = None): # {{{
+		if data is None:
+			data = self.parse_frame (frame)
 		if data[0] is None:
 			return
 		elif data[0] == 'error':
 			raise ValueError (data[1])
 		try:
 			if data[0] == 'call':
-				#log (repr (self.target) + repr (data))
 				self.send ('return', getattr (self.target, data[1][0]) (*data[1][1], **data[1][2]))
 			elif data[0] == 'event':
 				getattr (self.target, data[1][0]) (*data[1][1], **data[1][2])
@@ -474,7 +475,9 @@ if network.have_glib: # {{{
 				address = address[1:-1]
 			if '.' in address:
 				base, ext = address.rsplit ('.', 1)
-				if ext not in self.exts:
+				base = base.strip ('/')
+				if ext not in self.server.exts:
+					log ('not serving unknown extension %s' % ext)
 					self.reply (404)
 					return
 				for d in self.httpdirs:
@@ -482,11 +485,12 @@ if network.have_glib: # {{{
 					if os.path.exists (filename):
 						break
 				else:
+					log ('file %s not found in %s' % (base + os.extsep + ext, ', '.join (self.httpdirs)))
 					self.reply (404)
 					return
 			else:
 				base = address
-				for ext in self.exts:
+				for ext in self.server.exts:
 					for d in self.httpdirs:
 						filename = os.path.join (d, base + os.extsep + ext)
 						if os.path.exists (filename):
@@ -495,9 +499,10 @@ if network.have_glib: # {{{
 						continue
 					break
 				else:
+					log ('no file %s (with supported extension) found in %s' % (base, ', '.join (self.httpdirs)))
 					self.reply (404)
 					return
-			return self.exts[ext] (self, open (filename).read ())
+			return self.server.exts[ext] (self, open (filename).read ())
 		# }}}
 	# }}}
 	class Httpd: # {{{
