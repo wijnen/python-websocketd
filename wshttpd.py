@@ -20,7 +20,7 @@
 
 # imports.  {{{
 import network
-from network import fgloop, bgloop, endloop
+from network import fgloop, bgloop, endloop, log
 import os
 import re
 import sys
@@ -106,33 +106,33 @@ Sec-WebSocket-Key: 0\r
 			self._websocket_read (hdrdata)
 	# }}}
 	def _websocket_read (self, data, sync = False):	# {{{
-		#print ('received: ' + repr (data))
+		#log ('received: ' + repr (data))
 		self.websocket_buffer += data
 		if ord (self.websocket_buffer[0]) & 0x70:
-			#print (repr (self.websocket_buffer))
+			#log (repr (self.websocket_buffer))
 			# Protocol error.
-			print ('extension stuff, not supported!')
+			log ('extension stuff, not supported!')
 			self.socket.close ()
 			return None
 		if len (self.websocket_buffer) < 2:
 			# Not enough data for length bytes.
-			print ('no length yet')
+			log ('no length yet')
 			return None
 		b = ord (self.websocket_buffer[1])
 		have_mask = bool (b & 0x80)
 		b &= 0x7f
 		if have_mask and self.mask[0] is True or not have_mask and self.mask[0] is False:
 			# Protocol error.
-			print ('mask error')
+			log ('mask error')
 			self.socket.close ()
 			return None
 		if b == 126 and len (self.websocket_buffer) < 4:
 			# Not enough data for length bytes.
-			print ('no 2 length yet')
+			log ('no 2 length yet')
 			return None
 		if b == 127 and len (self.websocket_buffer) < 10:
 			# Not enough data for length bytes.
-			print ('no 4 length yet')
+			log ('no 4 length yet')
 			return None
 		if b == 127:
 			l = struct.unpack ('!Q', self.websocket_buffer[2:10])[0]
@@ -145,7 +145,7 @@ Sec-WebSocket-Key: 0\r
 			pos = 2
 		if len (self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
 			# Not enough data for packet.
-			print ('no packet yet')
+			log ('no packet yet')
 			return None
 		opcode = ord (self.websocket_buffer[0]) & 0xf
 		if have_mask:
@@ -162,11 +162,11 @@ Sec-WebSocket-Key: 0\r
 			# fragment found; not last.
 			if opcode != 0:
 				# Protocol error.
-				print ('invalid fragment')
+				log ('invalid fragment')
 				self.socket.close ()
 				return None
 			self.websocket_fragments += data
-			print ('fragment recorded')
+			log ('fragment recorded')
 			return None
 		# Complete frame has been received.
 		self.websocket_buffer = ''
@@ -187,15 +187,15 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 1:
 			# Text.
 			data = unicode (data, 'utf-8', 'replace')
-			#print ('text')
+			#log ('text')
 			if sync:
-				#print ('sync')
+				#log ('sync')
 				return data
 			if self.recv:
-				#print ('async')
+				#log ('async')
 				self.recv (self, data)
 			else:
-				print ('warning: ignoring incoming websocket frame')
+				log ('warning: ignoring incoming websocket frame')
 		if opcode == 2:
 			# Binary.
 			if sync:
@@ -203,10 +203,10 @@ Sec-WebSocket-Key: 0\r
 			if self.recv:
 				self.recv (self, data)
 			else:
-				print ('warning: ignoring incoming websocket frame (binary)')
+				log ('warning: ignoring incoming websocket frame (binary)')
 	# }}}
 	def send (self, data, opcode = 1):	# Send a WebSocket frame.  {{{
-		#print ('websend:' + repr (data))
+		#log ('websend:' + repr (data))
 		assert opcode in (0, 1, 2, 8, 9, 10)
 		if self._is_closed:
 			return None
@@ -256,7 +256,7 @@ class RPCWebsocket (Websocket): # {{{
 	def __init__ (self, port, recv = None, *a, **ka): # {{{
 		Websocket.__init__ (self, port, recv = RPCWebsocket.recv, *a, **ka)
 		self.target = recv (self) if recv is not None else None
-		#print ('init:' + repr (recv) + ',' + repr (self.target))
+		#log ('init:' + repr (recv) + ',' + repr (self.target))
 	# }}}
 	class wrapper: # {{{
 		def __init__ (self, base, attr): # {{{
@@ -282,36 +282,36 @@ class RPCWebsocket (Websocket): # {{{
 		# }}}
 	# }}}
 	def send (self, type, object): # {{{
-		#print ('sending:' + repr (type) + repr (object))
+		#log ('sending:' + repr (type) + repr (object))
 		Websocket.send (self, json.dumps ((type, object)))
 	# }}}
 	def parse_frame (self, frame): # {{{
 		# Don't choke on Chrome's junk at the end of packets.
 		data = json.JSONDecoder ().raw_decode (frame)[0]
 		if type (data) is not list or len (data) != 2 or type (data[0]) is not unicode:
-			print ('invalid frame %s' % repr (data))
+			log ('invalid frame %s' % repr (data))
 			return (None, 'invalid frame')
 		if data[0] in (u'event', u'call'):
 			if not hasattr (self.target, data[1][0]) or not callable (getattr (self.target, data[1][0])):
-				print ('invalid call or event frame %s' % repr (data))
+				log ('invalid call or event frame %s' % repr (data))
 				return (None, 'invalid frame')
 		elif data[0] not in (u'error', u'return'):
 			#self.send ('error', 'invalid frame')
-			print ('invalid frame type %s' % repr (data))
+			log ('invalid frame type %s' % repr (data))
 			return (None, 'invalid frame')
 		return data
 	# }}}
 	def recv (self, frame): # {{{
-		#print ('recv/' + repr (self.target))
+		#log ('recv/' + repr (self.target))
 		data = self.parse_frame (frame)
-		#print data
+		#log data
 		if data[0] is None:
 			return
 		elif data[0] == 'error':
 			raise ValueError (data[1])
 		try:
 			if data[0] == 'call':
-				#print (repr (self.target) + repr (data))
+				#log (repr (self.target) + repr (data))
 				self.send ('return', getattr (self.target, data[1][0]) (*data[1][1], **data[1][2]))
 			elif data[0] == 'event':
 				getattr (self.target, data[1][0]) (*data[1][1], **data[1][2])
@@ -339,10 +339,10 @@ if network.have_glib: # {{{
 			self.address = None
 			self.socket.disconnect_cb (lambda data: '')	# Ignore disconnect until it is a WebSocket.
 			self.socket.readlines (self._line)
-			#sys.stderr.write ('Debug: new connection from %s\n' % repr (self.socket.remote))
+			#log ('Debug: new connection from %s\n' % repr (self.socket.remote))
 		# }}}
 		def _line (self, l):	# {{{
-			#sys.stderr.write ('Debug: Received line: %s\n' % l)
+			#log ('Debug: Received line: %s\n' % l)
 			if self.address is not None:
 				if not l.strip ():
 					self._handle_headers ()
@@ -393,7 +393,7 @@ if network.have_glib: # {{{
 				try:
 					self.page ()
 				except:
-					sys.stderr.write ('exception: %s\n' % repr (sys.exc_value))
+					log ('exception: %s\n' % repr (sys.exc_value))
 					self.reply (500)
 				self.socket.close ()
 				return
@@ -441,7 +441,7 @@ if network.have_glib: # {{{
 		# }}}
 		def reply (self, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
 			assert code in known_codes
-			#sys.stderr.write ('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], self.address.path))
+			#log ('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], self.address.path))
 			self.socket.send ('HTTP/1.1 %d %s\r\n' % (code, known_codes[code]))
 			if headers is None:
 				headers = {}

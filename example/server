@@ -34,5 +34,5 @@ else:
 			return 5
 	s = wshttpd.RPChttpd (8000, Class)
 
-print ('running')
+wshttpd.log ('running')
 wshttpd.fgloop ()

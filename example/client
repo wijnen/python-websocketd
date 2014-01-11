@@ -9,7 +9,7 @@ class Reader:
 	def quit (self):
 		wshttpd.endloop ()
 
-c = wshttpd.RPCWebsocket (8000, Reader, tls = None)
+c = wshttpd.RPCWebsocket (8000, Reader)
 
 # Use an idle handler, because endloop must not be called before fgloop.
 def later ():
