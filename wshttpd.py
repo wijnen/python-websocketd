@@ -115,7 +115,7 @@ Sec-WebSocket-Key: 0\r
 			return None
 		if len (self.websocket_buffer) < 2:
 			# Not enough data for length bytes.
-			log ('no length yet')
+			#log ('no length yet')
 			return None
 		b = ord (self.websocket_buffer[1])
 		have_mask = bool (b & 0x80)
@@ -128,14 +128,14 @@ Sec-WebSocket-Key: 0\r
 		if b == 127:
 			if len (self.websocket_buffer) < 10:
 				# Not enough data for length bytes.
-				log ('no 4 length yet')
+				#log ('no 4 length yet')
 				return None
 			l = struct.unpack ('!Q', self.websocket_buffer[2:10])[0]
 			pos = 10
 		elif b == 126:
 			if len (self.websocket_buffer) < 4:
 				# Not enough data for length bytes.
-				log ('no 2 length yet')
+				#log ('no 2 length yet')
 				return None
 			l = struct.unpack ('!H', self.websocket_buffer[2:4])[0]
 			pos = 4
@@ -144,7 +144,7 @@ Sec-WebSocket-Key: 0\r
 			pos = 2
 		if len (self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
 			# Not enough data for packet.
-			log ('no packet yet')
+			#log ('no packet yet')
 			return None
 		opcode = ord (self.websocket_buffer[0]) & 0xf
 		if have_mask:
@@ -228,6 +228,7 @@ Sec-WebSocket-Key: 0\r
 			self.socket.send (chr (0x80 | opcode) + l + mask + data)
 		except:
 			# Something went wrong; close the socket (in case it wasn't yet).
+			log ('closing socket due to problem while sending: %s' % str (sys.exc_value))
 			self.socket.close ()
 		if opcode == 8:
 			self.socket.close ()
@@ -307,6 +308,7 @@ class RPCWebsocket (Websocket): # {{{
 	def recv (self, frame, data = None): # {{{
 		if data is None:
 			data = self.parse_frame (frame)
+		#log (repr (data))
 		if data[0] is None:
 			return
 		elif data[0] == 'error':
@@ -318,8 +320,12 @@ class RPCWebsocket (Websocket): # {{{
 				getattr (self.target, data[1][0]) (*data[1][1], **data[1][2])
 			else:
 				raise ValueError ('invalid RPC command')
+		except AssertionError, e:
+			self.send ('error', 'assertion hit')
 		except:
+			log ('error: %s' % str (sys.exc_value))
 			self.send ('error', str (sys.exc_value))
+			#raise
 	# }}}
 	def __getattr__ (self, attr): # {{{
 		if attr.startswith ('_'):
@@ -489,7 +495,7 @@ if network.have_glib: # {{{
 					self.reply (404)
 					return
 			else:
-				base = address
+				base = address.strip ('/')
 				for ext in self.server.exts:
 					for d in self.httpdirs:
 						filename = os.path.join (d, base + os.extsep + ext)
