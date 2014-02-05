@@ -1,19 +1,19 @@
 #!/usr/bin/python
 
-import wshttpd
+import websockets
 import glib
 
 class Reader:
 	def __init__ (self, socket):
 		pass
 	def quit (self):
-		wshttpd.endloop ()
+		websockets.endloop ()
 
-c = wshttpd.RPCWebsocket (8000, Reader)
+c = websockets.RPC (8000, Reader)
 
 # Use an idle handler, because endloop must not be called before fgloop.
 def later ():
 	print c.a ()
 glib.idle_add (later)
 
-wshttpd.fgloop ()
+websockets.fgloop ()

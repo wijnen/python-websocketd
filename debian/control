@@ -1,11 +1,11 @@
-Source: python-wshttpd
+Source: python-websockets
 Section: python
 Priority: optional
 Maintainer: Bas Wijnen <wijnen@debian.org>
 Build-Depends: debhelper (>= 9), python, python-support
 Standards-Version: 3.9.4
 
-Package: python-wshttpd
+Package: python-websockets
 Architecture: all
 Depends: ${misc:Depends}, ${python:Depends}, python-network
 Description: python module for creating a http server which uses WebSockets

@@ -1,4 +1,5 @@
-var _rpc_reply;
+var _rpc_calls = new Object;
+var _rpc_id = 0;
 
 function Rpc (obj, onopen, onclose)
 {
@@ -8,12 +9,14 @@ function Rpc (obj, onopen, onclose)
 	ret.onmessage = function (frame) { _rpc_message (ret, obj, frame.data); };
 	ret.call = function (name, a, ka, reply)
 	{
-		_rpc_reply = reply;
-		this.send (JSON.stringify (['call', [name, a, ka]]));
+		_rpc_id += 1;
+		var my_id = _rpc_id;
+		_rpc_calls[my_id] = function (x) { delete _rpc_calls[my_id]; reply (x); };
+		this.send (JSON.stringify (['call', [my_id, name, a, ka]]));
 	};
 	ret.event = function (name, a, ka)
 	{
-		this.send (JSON.stringify (['event', [name, a, ka]]));
+		this.send (JSON.stringify (['call', [null, name, a, ka]]));
 	};
 	return ret;
 }
@@ -44,10 +47,7 @@ function _rpc_message (websocket, obj, frame)
 	}
 	else if (cmd == 'return')
 	{
-		if (_rpc_reply)
-			_rpc_reply (data[1]);
-		else
-			alert ('received return without making a call');
+		_rpc_calls[data[1][0]] (data[1][1]);
 	}
 	else
 	{

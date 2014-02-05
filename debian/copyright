@@ -1,7 +1,7 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: python-wshttpd
+Upstream-Name: python-websockets
 Upstream-Contact: Bas Wijnen <wijnen@debian.org>
-Source: https://github.com/wijnen/python-wshttpd
+Source: https://github.com/wijnen/python-websockets
 
 Files: *
 Copyright: Copyright 2013 Bas Wijnen <wijnen@debian.org>

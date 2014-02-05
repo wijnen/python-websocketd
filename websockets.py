@@ -30,7 +30,10 @@ import base64
 import hashlib
 import struct
 import json
+import traceback
 # }}}
+
+DEBUG = not bool (os.getenv ('NODEBUG'))
 
 known_codes = {	# {{{
 		100: 'Continue', 101: 'Switching Protocols',
@@ -228,7 +231,9 @@ Sec-WebSocket-Key: 0\r
 			self.socket.send (chr (0x80 | opcode) + l + mask + data)
 		except:
 			# Something went wrong; close the socket (in case it wasn't yet).
-			log ('closing socket due to problem while sending: %s' % str (sys.exc_value))
+			if DEBUG:
+				traceback.print_exc ()
+			log ('closing socket due to problem while sending.')
 			self.socket.close ()
 		if opcode == 8:
 			self.socket.close ()
@@ -252,11 +257,28 @@ Sec-WebSocket-Key: 0\r
 	# }}}
 # }}}
 
-class RPCWebsocket (Websocket): # {{{
+# Sentinel object to signify that generator is not done.
+class WAIT:
+	pass
+
+class RPC (Websocket): # {{{
+	_generatortype = type ((lambda: (yield))())
+	index = 0
+	calls = {}
+	@classmethod
+	def get_index (cls): # {{{
+		while cls.index in cls.calls:
+			cls.index += 1
+		if type (cls.index) is long:
+			cls.index = 0
+			while cls.index in cls.calls:
+				cls.index += 1
+		return cls.index
+	# }}}
 	def __init__ (self, port, recv = None, *a, **ka): # {{{
-		Websocket.__init__ (self, port, recv = RPCWebsocket.recv, *a, **ka)
-		self.target = recv (self) if recv is not None else None
-		#log ('init:' + repr (recv) + ',' + repr (self.target))
+		Websocket.__init__ (self, port, recv = RPC._recv, *a, **ka)
+		self._target = recv (self) if recv is not None else None
+		#log ('init:' + repr (recv) + ',' + repr (self._target))
 	# }}}
 	class wrapper: # {{{
 		def __init__ (self, base, attr): # {{{
@@ -264,29 +286,43 @@ class RPCWebsocket (Websocket): # {{{
 			self.attr = attr
 		# }}}
 		def __call__ (self, *a, **ka): # {{{
-			self.base.send ('call', (self.attr, a, ka))
-			ret = []
-			while True:
+			my_id = RPC.get_index ()
+			self.base._send ('call', (my_id, self.attr, a, ka))
+			my_call = [None]
+			RPC.calls[my_id] = lambda x: my_call.__setitem__ (0, (x,))	# Make it a tuple so it cannot be None.
+			while my_call[0] is None:
 				while True:
 					data = self.base._websocket_read (self.base.socket.recv (), True)
 					if data is not None:
 						break
-				ret = self.base.parse_frame (data)
-				if ret[0] == 'return':
-					return ret[1]
-				# Async event crossed our call; respond to it if it's valid.
-				if ret[0] is not None:
-					self.base.recv (self.base, data, ret)
+				self.base._recv (data)
+			del RPC.calls[my_id]
+			return my_call[0][0]
 		# }}}
 		def __getitem__ (self, *a, **ka): # {{{
-			self.base.send ('event', (self.attr, a, ka))
+			self.base._send ('call', (None, self.attr, a, ka))
+		# }}}
+		def bg (self, reply, *a, **ka): # {{{
+			my_id = RPC.get_index ()
+			self.base._send ('call', (my_id, self.attr, a, ka))
+			RPC.calls[my_id] = lambda x: self.do_reply (reply, my_id, x)
+		# }}}
+		def do_reply (self, reply, my_id, ret): # {{{
+			del RPC.calls[my_id]
+			reply (ret)
+		# }}}
+		# alternate names. {{{
+		def call (self, *a, **ka):
+			self.__call__ (*a, **ka)
+		def event (self, *a, **ka):
+			self.__getitem__ (*a, **ka)
 		# }}}
 	# }}}
-	def send (self, type, object): # {{{
+	def _send (self, type, object): # {{{
 		#log ('sending:' + repr (type) + repr (object))
 		Websocket.send (self, json.dumps ((type, object)))
 	# }}}
-	def parse_frame (self, frame): # {{{
+	def _parse_frame (self, frame): # {{{
 		try:
 			# Don't choke on Chrome's junk at the end of packets.
 			data = json.JSONDecoder ().raw_decode (frame)[0]
@@ -296,41 +332,59 @@ class RPCWebsocket (Websocket): # {{{
 		if type (data) is not list or len (data) != 2 or type (data[0]) is not unicode:
 			log ('invalid frame %s' % repr (data))
 			return (None, 'invalid frame')
-		if data[0] in (u'event', u'call'):
-			if not hasattr (self.target, data[1][0]) or not callable (getattr (self.target, data[1][0])):
-				log ('invalid call or event frame %s' % repr (data))
+		if data[0] == u'call':
+			if not hasattr (self._target, data[1][1]) or not callable (getattr (self._target, data[1][1])):
+				log ('invalid call frame %s' % repr (data))
 				return (None, 'invalid frame')
 		elif data[0] not in (u'error', u'return'):
 			log ('invalid frame type %s' % repr (data))
 			return (None, 'invalid frame')
 		return data
 	# }}}
-	def recv (self, frame, data = None): # {{{
-		if data is None:
-			data = self.parse_frame (frame)
+	def _recv (self, frame): # {{{
+		data = self._parse_frame (frame)
 		#log (repr (data))
 		if data[0] is None:
 			return
 		elif data[0] == 'error':
+			if DEBUG:
+				traceback.print_exc ()
 			raise ValueError (data[1])
+		elif data[0] == 'return':
+			assert data[1][0] in RPC.calls
+			RPC.calls[data[1][0]] (data[1][1])
+			return
 		try:
 			if data[0] == 'call':
-				self.send ('return', getattr (self.target, data[1][0]) (*data[1][1], **data[1][2]))
-			elif data[0] == 'event':
-				getattr (self.target, data[1][0]) (*data[1][1], **data[1][2])
+				self._call (data[1][0], data[1][1], data[1][2], data[1][3])
 			else:
 				raise ValueError ('invalid RPC command')
 		except AssertionError, e:
-			self.send ('error', 'assertion hit')
+			self._send ('error', traceback.format_exc ())
 		except:
 			log ('error: %s' % str (sys.exc_value))
-			self.send ('error', str (sys.exc_value))
+			self._send ('error', traceback.format_exc ())
 			#raise
+	# }}}
+	def _call (self, reply, member, a, ka): # {{{
+		ret = getattr (self._target, member) (*a, **ka)
+		if type (ret) is not RPC._generatortype:
+			if reply is not None:
+				self._send ('return', (reply, ret))
+			return
+		next (ret)
+		self._handle_next (reply, ret.send (lambda *aa, **kaa: self._handle_next (reply, ret.send (*aa, **kaa))))
+	# }}}
+	def _handle_next (self, reply, result): # {{{
+		if result is WAIT:
+			return
+		if reply is not None:
+			self._send ('return', (reply, result))
 	# }}}
 	def __getattr__ (self, attr): # {{{
 		if attr.startswith ('_'):
 			raise AttributeError ('invalid RPC function name')
-		return RPCWebsocket.wrapper (self, attr)
+		return RPC.wrapper (self, attr)
 	# }}}
 # }}}
 
@@ -400,6 +454,8 @@ if network.have_glib: # {{{
 				try:
 					self.page ()
 				except:
+					if DEBUG:
+						traceback.print_exc ()
 					log ('exception: %s\n' % repr (sys.exc_value))
 					self.reply (500)
 				self.socket.close ()
@@ -568,7 +624,7 @@ if network.have_glib: # {{{
 	class RPChttpd (Httpd): # {{{
 		class RPCconnection (Httpd_connection):
 			def __init__ (self, *a, **ka):
-				Httpd_connection.__init__ (self, websocket = RPCWebsocket, *a, **ka)
+				Httpd_connection.__init__ (self, websocket = RPC, *a, **ka)
 		def __init__ (self, port, target, *a, **ka): # {{{
 			Httpd.__init__ (self, port, target, RPChttpd.RPCconnection, *a, **ka)
 		# }}}

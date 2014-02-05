@@ -16,15 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # }}}
 
-import wshttpd
+import websockets
 
 if False:
-	class Connection (wshttpd.Connection):
+	class Connection (websockets.Connection):
 		def recv (self, frame):
 			print (frame)
 			self.send (frame)
-
-	s = wshttpd.Httpd (8000, Connection)
+	s = websockets.Httpd (8000, Connection)
 else:
 	class Class:
 		def __init__ (self, remote):
@@ -32,7 +31,7 @@ else:
 		def a (self):
 			self.remote.quit ()
 			return 5
-	s = wshttpd.RPChttpd (8000, Class, httpdirs = ('.',))
+	s = websockets.RPChttpd (8000, Class, httpdirs = ('.',))
 
-wshttpd.log ('running')
-wshttpd.fgloop ()
+websockets.log ('running')
+websockets.fgloop ()
