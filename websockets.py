@@ -345,6 +345,7 @@ class RPC (Websocket): # {{{
 		data = self._parse_frame (frame)
 		#log (repr (data))
 		if data[0] is None:
+			self._send ('error', data[1])
 			return
 		elif data[0] == 'error':
 			if DEBUG:
