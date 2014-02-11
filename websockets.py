@@ -33,7 +33,7 @@ import json
 import traceback
 # }}}
 
-DEBUG = not bool (os.getenv ('NODEBUG'))
+DEBUG = 0 if os.getenv ('NODEBUG') else int (os.getenv ('DEBUG', 1))
 
 known_codes = {	# {{{
 		100: 'Continue', 101: 'Switching Protocols',
@@ -109,7 +109,25 @@ Sec-WebSocket-Key: 0\r
 			self._websocket_read (hdrdata)
 	# }}}
 	def _websocket_read (self, data, sync = False):	# {{{
+		# Websocket data consists of:
+		# 1 byte:
+		#	bit 7: 1 for last (or only) fragment; 0 for other fragments.
+		#	bit 6-4: extension stuff; must be 0.
+		#	bit 3-0: opcode.
+		# 1 byte:
+		#	bit 7: 1 if masked, 0 otherwise.
+		#	bit 6-0: length or 126 or 127.
+		# If 126:
+		# 	2 bytes: length
+		# If 127:
+		#	8 bytes: length
+		# If masked:
+		#	4 bytes: mask
+		# length bytes: (masked) payload
+
 		#log ('received: ' + repr (data))
+		if DEBUG > 2:
+			log ('received %d bytes' % len (data))
 		self.websocket_buffer += data
 		if ord (self.websocket_buffer[0]) & 0x70:
 			# Protocol error.
@@ -118,7 +136,8 @@ Sec-WebSocket-Key: 0\r
 			return None
 		if len (self.websocket_buffer) < 2:
 			# Not enough data for length bytes.
-			#log ('no length yet')
+			if DEBUG > 3:
+				log ('no length yet')
 			return None
 		b = ord (self.websocket_buffer[1])
 		have_mask = bool (b & 0x80)
@@ -131,14 +150,16 @@ Sec-WebSocket-Key: 0\r
 		if b == 127:
 			if len (self.websocket_buffer) < 10:
 				# Not enough data for length bytes.
-				#log ('no 4 length yet')
+				if DEBUG > 3:
+					log ('no 4 length yet')
 				return None
 			l = struct.unpack ('!Q', self.websocket_buffer[2:10])[0]
 			pos = 10
 		elif b == 126:
 			if len (self.websocket_buffer) < 4:
 				# Not enough data for length bytes.
-				#log ('no 2 length yet')
+				if DEBUG > 3:
+					log ('no 2 length yet')
 				return None
 			l = struct.unpack ('!H', self.websocket_buffer[2:4])[0]
 			pos = 4
@@ -147,20 +168,24 @@ Sec-WebSocket-Key: 0\r
 			pos = 2
 		if len (self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
 			# Not enough data for packet.
-			#log ('no packet yet')
+			if DEBUG > 3:
+				log ('no packet yet (%d < %d)' % (len (self.websocket_buffer), pos + (4 if have_mask else 0) + l))
 			return None
-		opcode = ord (self.websocket_buffer[0]) & 0xf
+		header = self.websocket_buffer[:pos]
+		opcode = ord (header[0]) & 0xf
 		if have_mask:
 			mask = [ord (x) for x in self.websocket_buffer[pos:pos + 4]]
 			pos += 4
-			data = self.websocket_buffer[pos:]
+			data = self.websocket_buffer[pos:pos + 4 + l]
+			self.websocket_buffer = self.websocket_buffer[pos + 4 + l:]
 			# The following is slow!
 			# Don't do it if the mask is 0; this is always true if talking to another program using this module.
 			if mask != [0, 0, 0, 0]:
 				data = ''.join ([chr (ord (x) ^ mask[i & 3]) for i, x in enumerate (data)])
 		else:
-			data = self.websocket_buffer[pos:]
-		if (ord (self.websocket_buffer[0]) & 0x80) != 0x80:
+			data = self.websocket_buffer[pos:pos + l]
+			self.websocket_buffer = self.websocket_buffer[pos + l:]
+		if (ord (header[0]) & 0x80) != 0x80:
 			# fragment found; not last.
 			if opcode != 0:
 				# Protocol error.
@@ -171,7 +196,6 @@ Sec-WebSocket-Key: 0\r
 			log ('fragment recorded')
 			return None
 		# Complete frame has been received.
-		self.websocket_buffer = ''
 		data = self.websocket_fragments + data
 		self.websocket_fragments = ''
 		if opcode == 8:
@@ -189,12 +213,9 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 1:
 			# Text.
 			data = unicode (data, 'utf-8', 'replace')
-			#log ('text')
 			if sync:
-				#log ('sync')
 				return data
 			if self.recv:
-				#log ('async')
 				self.recv (self, data)
 			else:
 				log ('warning: ignoring incoming websocket frame')
@@ -231,7 +252,7 @@ Sec-WebSocket-Key: 0\r
 			self.socket.send (chr (0x80 | opcode) + l + mask + data)
 		except:
 			# Something went wrong; close the socket (in case it wasn't yet).
-			if DEBUG:
+			if DEBUG > 0:
 				traceback.print_exc ()
 			log ('closing socket due to problem while sending.')
 			self.socket.close ()
@@ -260,6 +281,43 @@ Sec-WebSocket-Key: 0\r
 # Sentinel object to signify that generator is not done.
 class WAIT:
 	pass
+
+# Call a generator function from a generator function.
+# The caller should start with:
+# resumeinfo = [yield, None]
+# To make the call, it should say:
+# c = websockets.call (resumeinfo, target, args...); while c (): c.args = (yield websockets.WAIT)
+# resumeinfo[1] will contain the returned value.
+class call:
+	def __init__ (self, resumeinfo, target, *a, **ka):
+		if resumeinfo is None:
+			self.resumeinfo = [self, None]
+		else:
+			self.resumeinfo = resumeinfo
+		self.target = target (*a, **ka)
+		if type (self.target) is not RPC._generatortype:
+			# Not a generator; just return the value.
+			self.resumeinfo[1] = self.target
+			self.target = None
+			return
+		self.target.send (None)
+		self.args = self.resumeinfo[0]
+	def __call__ (self, arg = None):
+		if self.target is None:
+			return False
+		try:
+			a = self.args if arg is None else arg
+			self.args = None
+			r = self.target.send (a)
+		except StopIteration:
+			r = None
+		if r is WAIT:
+			return True
+		self.resumeinfo[1] = r
+		self.target = None
+		return False
+	def ret (self):
+		return self.resumeinfo[1]
 
 class RPC (Websocket): # {{{
 	_generatortype = type ((lambda: (yield))())
@@ -343,12 +401,13 @@ class RPC (Websocket): # {{{
 	# }}}
 	def _recv (self, frame): # {{{
 		data = self._parse_frame (frame)
-		#log (repr (data))
+		if DEBUG > 1:
+			log ('packet received: %s' % repr (data))
 		if data[0] is None:
 			self._send ('error', data[1])
 			return
 		elif data[0] == 'error':
-			if DEBUG:
+			if DEBUG > 0:
 				traceback.print_exc ()
 			raise ValueError (data[1])
 		elif data[0] == 'return':
@@ -373,8 +432,13 @@ class RPC (Websocket): # {{{
 			if reply is not None:
 				self._send ('return', (reply, ret))
 			return
-		next (ret)
-		self._handle_next (reply, ret.send (lambda *aa, **kaa: self._handle_next (reply, ret.send (*aa, **kaa))))
+		ret.send (None)
+		def safesend (target, arg):
+			try:
+				return target.send (arg)
+			except StopIteration:
+				return None
+		self._handle_next (reply, safesend (ret, lambda arg = None: self._handle_next (reply, safesend (ret, arg))))
 	# }}}
 	def _handle_next (self, reply, result): # {{{
 		if result is WAIT:
@@ -455,7 +519,7 @@ if network.have_glib: # {{{
 				try:
 					self.page ()
 				except:
-					if DEBUG:
+					if DEBUG > 0:
 						traceback.print_exc ()
 					log ('exception: %s\n' % repr (sys.exc_value))
 					self.reply (500)
