@@ -69,21 +69,23 @@ function Rpc (obj, onopen, onclose)
 	{
 		this.call (name, a, ka, null);
 	};
-	ret.multicall = function (args, cb, rets)
+	ret.multicall = function (args, cb, rets, from)
 	{
 		if (!rets)
 			rets = [];
-		if (args.length == 0) {
+		if (!from)
+			from = 0;
+		if (from >= args.length) {
 			if (cb)
 				cb (rets);
 			return;
 		}
-		var arg = args.shift ();
+		var arg = args[from];
 		this.call (arg[0], arg[1], arg[2], function (r) {
 			rets.push (r);
 			if (arg[3])
 				arg[3] (r);
-			ret.multicall (args, cb, rets);
+			ret.multicall (args, cb, rets, from + 1);
 		});
 	};
 	return ret;
