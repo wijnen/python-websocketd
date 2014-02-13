@@ -100,17 +100,16 @@ function _rpc_message (websocket, obj, frame)
 	{
 		try
 		{
-			var ret = obj[data[1][0]].apply (obj, data[1][1]);
-			websocket.send (_rpc_tojson (['return', ret]));
+			var id = data[1][0];
+			var ret = obj[data[1][1]].apply (obj, data[1][2]);
+			if (id != null)
+				websocket.send (_rpc_tojson (['return', [id, ret]]));
 		}
 		catch (e)
 		{
-			websocket.send (_rpc_tojson (['error', e]));
+			if (id != null)
+				websocket.send (_rpc_tojson (['error', e]));
 		}
-	}
-	else if (cmd == 'event')
-	{
-		obj[data[1][0]].apply (obj, data[1][1]);
 	}
 	else if (cmd == 'error')
 	{

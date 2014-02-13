@@ -128,6 +128,8 @@ Sec-WebSocket-Key: 0\r
 		#log ('received: ' + repr (data))
 		if DEBUG > 2:
 			log ('received %d bytes' % len (data))
+		if DEBUG > 4:
+			log ('data: ' + ' '.join (['%02x' % ord (x) for x in data]) + ''.join ([x if 32 <= ord (x) < 127 else '.' for x in data]))
 		self.websocket_buffer += data
 		if ord (self.websocket_buffer[0]) & 0x70:
 			# Protocol error.
