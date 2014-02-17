@@ -284,12 +284,16 @@ Sec-WebSocket-Key: 0\r
 class WAIT:
 	pass
 
-# Call a generator function from a generator function.
+# Call a generator function from a generator function. {{{
 # The caller should start with:
-# resumeinfo = [yield, None]
+# resumeinfo = [(yield), None]
 # To make the call, it should say:
-# c = websockets.call (resumeinfo, target, args...); while c (): c.args = (yield websockets.WAIT)
+# c = websockets.call (resumeinfo, target, args...)
+# while c (): c.args = (yield websockets.WAIT)
 # resumeinfo[1] will contain the returned value.
+# When calling from a regular context (not in a generator), use None for
+# resumeinfo and call the result, like so:
+# websockets.call (None, target, args...) ()
 class call:
 	def __init__ (self, resumeinfo, target, *a, **ka):
 		if resumeinfo is None:
@@ -320,6 +324,7 @@ class call:
 		return False
 	def ret (self):
 		return self.resumeinfo[1]
+# }}}
 
 class RPC (Websocket): # {{{
 	_generatortype = type ((lambda: (yield))())
@@ -484,7 +489,7 @@ if network.have_glib: # {{{
 					self.address = urlparse.urlparse (url)
 					self.query = urlparse.parse_qs (self.address.query)
 				except:
-					self.reply (400)
+					self.server.reply (self, 400)
 					self.socket.close ()
 				return
 		# }}}
@@ -494,47 +499,47 @@ if network.have_glib: # {{{
 			msg = self.server.auth_message (self, is_websocket) if callable (self.server.auth_message) else self.server.auth_message
 			if msg:
 				if 'Authorization' not in self.headers:
-					self.reply (401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
+					self.server.reply (self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
 					if 'Content-Length' not in self.headers or self.headers['Content-Length'].strip () != '0':
 						self.socket.close ()
 					return
 				else:
 					auth = self.headers['Authorization'].split (None, 1)
 					if auth[0] != 'Basic':
-						self.reply (400)
+						self.server.reply (self, 400)
 						self.socket.close ()
 						return
 					pwdata = base64.b64decode (auth[1]).split (':', 1)
 					if len (pwdata) != 2:
-						self.reply (400)
+						self.server.reply (self, 400)
 						self.socket.close ()
 						return
 					self.data['user'] = pwdata[0]
 					self.data['password'] = pwdata[1]
-					if not self.authenticate (self):
-						self.reply (401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
+					if not self.server.authenticate (self):
+						self.server.reply (self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace ('\n', ' ').replace ('\r', ' ').replace ('"', "'")})
 						if 'Content-Length' not in self.headers or self.headers['Content-Length'].strip () != '0':
 							self.socket.close ()
 						return
 			if not is_websocket:
 				self.body = self.socket.unread ()
 				try:
-					self.page ()
+					self.server.page (self)
 				except:
 					if DEBUG > 0:
 						traceback.print_exc ()
 					log ('exception: %s\n' % repr (sys.exc_value))
-					self.reply (500)
+					self.server.reply (self, 500)
 				self.socket.close ()
 				return
 			# Websocket.
 			if self.method != 'GET' or 'Sec-WebSocket-Key' not in self.headers:
-				self.reply (400)
+				self.server.reply (self, 400)
 				self.socket.close ()
 				return
 			newkey = base64.b64encode (hashlib.sha1 (self.headers['Sec-WebSocket-Key'].strip () + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest ())
 			headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
-			self.reply (101, None, None, headers)
+			self.server.reply (self, 101, None, None, headers)
 			self.websocket (None, recv = self.server.recv, url = None, socket = self.socket, mask = (None, False), websockets = self.server.websockets, data = self.data)
 		# }}}
 		def _reply_websocket (self, message, content_type):	# {{{
@@ -556,82 +561,8 @@ if network.have_glib: # {{{
 		} ()''' % (protocol, host, extra, protocol, host, extra)
 				e = match.end ()
 			m += message[e:]
-			self.reply (200, m, content_type)
+			self.server.reply (self, 200, m, content_type)
 		# }}}
-		# }}}
-		# The following functions can be called by the overloaded page function. {{{
-		def reply_html (self, message):	# {{{
-			self._reply_websocket (message, 'text/html;charset=utf8')
-		# }}}
-		def reply_js (self, message):	# {{{
-			self._reply_websocket (message, 'application/javascript;charset=utf8')
-		# }}}
-		def reply_css (self, message):	# {{{
-			self.reply (200, message, 'text/css;charset=utf8')
-		# }}}
-		def reply (self, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
-			assert code in known_codes
-			#log ('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], self.address.path))
-			self.socket.send ('HTTP/1.1 %d %s\r\n' % (code, known_codes[code]))
-			if headers is None:
-				headers = {}
-			if message is None and code != 101:
-				assert content_type is None
-				content_type = 'text/html;charset=utf-8'
-				message = '<!DOCTYPE html><html><head><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code])
-			if content_type is not None:
-				headers['Content-Type'] = content_type
-				headers['Content-Length'] = len (message)
-			else:
-				assert code == 101
-				message = ''
-			self.socket.send (''.join (['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n' + message)
-		# }}}
-		# }}}
-		# If httpdirs is not given, or special handling is desired, this can be overloaded.
-		def page (self):	# A non-WebSocket page was requested.  Use self.address, self.method, self.query, self.headers and self.body (which may be incomplete) to find out more.  {{{
-			if self.httpdirs is None:
-				self.reply (501)
-				return
-			if self.address.path == '/':
-				address = 'index'
-			else:
-				address = '/' + self.address.path + '/'
-				while '/../' in address:
-					# Don't handle this; just ignore it.
-					pos = address.index ('/../')
-					address = address[:pos] + address[pos + 3:]
-				address = address[1:-1]
-			if '.' in address:
-				base, ext = address.rsplit ('.', 1)
-				base = base.strip ('/')
-				if ext not in self.server.exts:
-					log ('not serving unknown extension %s' % ext)
-					self.reply (404)
-					return
-				for d in self.httpdirs:
-					filename = os.path.join (d, base + os.extsep + ext)
-					if os.path.exists (filename):
-						break
-				else:
-					log ('file %s not found in %s' % (base + os.extsep + ext, ', '.join (self.httpdirs)))
-					self.reply (404)
-					return
-			else:
-				base = address.strip ('/')
-				for ext in self.server.exts:
-					for d in self.httpdirs:
-						filename = os.path.join (d, base + os.extsep + ext)
-						if os.path.exists (filename):
-							break
-					else:
-						continue
-					break
-				else:
-					log ('no file %s (with supported extension) found in %s' % (base, ', '.join (self.httpdirs)))
-					self.reply (404)
-					return
-			return self.server.exts[ext] (self, open (filename).read ())
 		# }}}
 	# }}}
 	class Httpd: # {{{
@@ -642,9 +573,9 @@ if network.have_glib: # {{{
 			self.websocket_re = r'#WEBSOCKET(?:\+(.*?))?#'
 			# Initial extensions which are handled from httpdirs; others can be added by the user.
 			self.exts = {
-					'html': http_connection.reply_html,
-					'js': http_connection.reply_js,
-					'css': http_connection.reply_css
+					'html': self.reply_html,
+					'js': self.reply_js,
+					'css': self.reply_css
 			}
 			self.websockets = set ()
 			if server is None:
@@ -656,7 +587,7 @@ if network.have_glib: # {{{
 			return self.http_connection (self, socket, self.httpdirs)
 		# }}}
 		def handle_ext (ext, mime): # {{{
-			self.exts[ext] = lambda socket, message: http_connection.reply (socket, 200, message, mime)
+			self.exts[ext] = lambda socket, message: self.reply (socket, 200, message, mime)
 		# }}}
 		# Authentication. {{{
 		# To use authentication, set auth_message to a static message
@@ -686,6 +617,80 @@ if network.have_glib: # {{{
 		def authenticate (self, connection): # {{{
 			return True
 		# }}}
+		# }}}
+		# The following functions can be called by the overloaded page function. {{{
+		def reply_html (self, connection, message):	# {{{
+			connection._reply_websocket (message, 'text/html;charset=utf8')
+		# }}}
+		def reply_js (self, connection, message):	# {{{
+			connection._reply_websocket (message, 'application/javascript;charset=utf8')
+		# }}}
+		def reply_css (self, connection, message):	# {{{
+			self.reply (connection, 200, message, 'text/css;charset=utf8')
+		# }}}
+		def reply (self, connection, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
+			assert code in known_codes
+			#log ('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], connection.address.path))
+			connection.socket.send ('HTTP/1.1 %d %s\r\n' % (code, known_codes[code]))
+			if headers is None:
+				headers = {}
+			if message is None and code != 101:
+				assert content_type is None
+				content_type = 'text/html;charset=utf-8'
+				message = '<!DOCTYPE html><html><head><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code])
+			if content_type is not None:
+				headers['Content-Type'] = content_type
+				headers['Content-Length'] = len (message)
+			else:
+				assert code == 101
+				message = ''
+			connection.socket.send (''.join (['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n' + message)
+		# }}}
+		# }}}
+		# If httpdirs is not given, or special handling is desired, this can be overloaded.
+		def page (self, connection):	# A non-WebSocket page was requested.  Use connection.address, connection.method, connection.query, connection.headers and connection.body (which may be incomplete) to find out more.  {{{
+			if self.httpdirs is None:
+				self.reply (connection, 501)
+				return
+			if connection.address.path == '/':
+				address = 'index'
+			else:
+				address = '/' + connection.address.path + '/'
+				while '/../' in address:
+					# Don't handle this; just ignore it.
+					pos = address.index ('/../')
+					address = address[:pos] + address[pos + 3:]
+				address = address[1:-1]
+			if '.' in address:
+				base, ext = address.rsplit ('.', 1)
+				base = base.strip ('/')
+				if ext not in self.exts:
+					log ('not serving unknown extension %s' % ext)
+					self.reply (connection, 404)
+					return
+				for d in self.httpdirs:
+					filename = os.path.join (d, base + os.extsep + ext)
+					if os.path.exists (filename):
+						break
+				else:
+					log ('file %s not found in %s' % (base + os.extsep + ext, ', '.join (self.httpdirs)))
+					self.reply (connection, 404)
+					return
+			else:
+				base = address.strip ('/')
+				for ext in self.exts:
+					for d in self.httpdirs:
+						filename = os.path.join (d, base + os.extsep + ext)
+						if os.path.exists (filename):
+							break
+					else:
+						continue
+					break
+				else:
+					log ('no file %s (with supported extension) found in %s' % (base, ', '.join (self.httpdirs)))
+					self.reply (connection, 404)
+					return
+			return self.exts[ext] (connection, open (filename).read ())
 		# }}}
 	# }}}
 	class RPChttpd (Httpd): # {{{
