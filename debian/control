@@ -3,7 +3,7 @@ Section: python
 Priority: optional
 Maintainer: Bas Wijnen <wijnen@debian.org>
 Build-Depends: debhelper (>= 9), python, python-support
-Standards-Version: 3.9.4
+Standards-Version: 3.9.5
 
 Package: python-websockets
 Architecture: all
