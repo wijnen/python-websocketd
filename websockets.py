@@ -24,16 +24,35 @@ from network import fgloop, bgloop, endloop, log
 import os
 import re
 import sys
-import urlparse
-import urllib
 import base64
 import hashlib
 import struct
 import json
+import collections
 import traceback
 # }}}
 
 DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
+
+# Some workarounds to make this file work in both python2 and python3. {{{
+if sys.version >= '3':
+	long = int
+	makebytes = lambda x: bytes(x, 'utf8') if isinstance(x, str) else x
+	makestr = lambda x: str(x, 'utf8', 'replace') if isinstance(x, bytes) else x
+	from urllib.parse import urlparse, parse_qs
+	isstr = lambda x: isinstance(x, str)
+	byte = lambda x: bytes((x,))
+	bytelist = lambda x: bytes(x)
+	bord = lambda x: x
+else:
+	makebytes = lambda x: x
+	makestr = lambda x: x
+	from urlparse import urlparse, parse_qs
+	isstr = lambda x: isinstance(x, unicode)
+	byte = chr
+	bytelist = lambda x: ''.join([chr(c) for c in x])
+	bord = ord
+# }}}
 
 known_codes = {	# {{{
 		100: 'Continue', 101: 'Switching Protocols',
@@ -51,46 +70,47 @@ class Websocket: # {{{
 		self.recv = recv
 		if socket is None:
 			socket = network.Socket(port, *a, **ka)
-		hdrdata = ''
+		hdrdata = b''
 		if url is not None:
 			elist = []
 			for e in extra:
 				elist.append('%s: %s\r\n' % (e, extra[e]))
-			socket.send('''\
+			socket.send(makebytes('''\
 %s %s HTTP/1.1\r
 Connection: Upgrade\r
 Upgrade: websocket\r
 Sec-WebSocket-Key: 0\r
 %s%s\r
-''' % (method, url, '' if user is None else base64.b64encode(user + ':' + password) + '\r\n', ''.join(elist)))
-			while '\n' not in hdrdata:
+''' % (method, url, '' if user is None else makestr(base64.b64encode(makebytes(user) + b':' + makebytes(password))) + '\r\n', ''.join(elist))))
+			while b'\n' not in hdrdata:
 				r = socket.recv()
-				if r == '':
+				if r == b'':
 					raise EOFError('EOF while reading reply')
 				hdrdata += r
-			pos = hdrdata.index('\n')
+			pos = hdrdata.index(b'\n')
+			print(repr(hdrdata))
 			assert int(hdrdata[:pos].split()[1]) == 101
 			hdrdata = hdrdata[pos + 1:]
 			data = {}
 			while True:
-				while '\n' not in hdrdata:
+				while b'\n' not in hdrdata:
 					r = socket.recv()
-					if r == '':
+					if len(r) == 0:
 						raise EOFError('EOF while reading reply')
 					hdrdata += r
-				pos = hdrdata.index('\n')
+				pos = hdrdata.index(b'\n')
 				line = hdrdata[:pos].strip()
 				hdrdata = hdrdata[pos + 1:]
-				if line == '':
+				if len(line) == 0:
 					break
-				key, value = [x.strip() for x in line.split(':', 1)]
+				key, value = [x.strip() for x in makestr(line).split(':', 1)]
 				data[key] = value
 		self.socket = socket
 		self.mask = mask
 		self.websockets = websockets
 		self.data = data
-		self.websocket_buffer = ''
-		self.websocket_fragments = ''
+		self.websocket_buffer = b''
+		self.websocket_fragments = b''
 		self._is_closed = False
 		self._pong = True	# If false, we're waiting for a pong.
 		self.socket.read(self._websocket_read)
@@ -100,12 +120,12 @@ Sec-WebSocket-Key: 0\r
 				if self.websockets is not None:
 					self.websockets.remove(self)
 				self.closed()
-			return ''
+			return b''
 		if self.websockets is not None:
 			self.websockets.add(self)
 		self.socket.disconnect_cb(disconnect)
 		self.opened()
-		if hdrdata != '':
+		if len(hdrdata) > 0:
 			self._websocket_read(hdrdata)
 	# }}}
 	def _websocket_read(self, data, sync = False):	# {{{
@@ -129,9 +149,9 @@ Sec-WebSocket-Key: 0\r
 		if DEBUG > 2:
 			log('received %d bytes' % len(data))
 		if DEBUG > 4:
-			log('data: ' + ' '.join(['%02x' % ord(x) for x in data]) + ''.join([x if 32 <= ord(x) < 127 else '.' for x in data]))
+			log('data: ' + ' '.join(['%02x' % bord(x) for x in data]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in data]))
 		self.websocket_buffer += data
-		if ord(self.websocket_buffer[0]) & 0x70:
+		if bord(self.websocket_buffer[0]) & 0x70:
 			# Protocol error.
 			log('extension stuff, not supported!')
 			self.socket.close()
@@ -141,7 +161,7 @@ Sec-WebSocket-Key: 0\r
 			if DEBUG > 3:
 				log('no length yet')
 			return None
-		b = ord(self.websocket_buffer[1])
+		b = bord(self.websocket_buffer[1])
 		have_mask = bool(b & 0x80)
 		b &= 0x7f
 		if have_mask and self.mask[0] is True or not have_mask and self.mask[0] is False:
@@ -174,20 +194,20 @@ Sec-WebSocket-Key: 0\r
 				log('no packet yet(%d < %d)' % (len(self.websocket_buffer), pos + (4 if have_mask else 0) + l))
 			return None
 		header = self.websocket_buffer[:pos]
-		opcode = ord(header[0]) & 0xf
+		opcode = bord(header[0]) & 0xf
 		if have_mask:
-			mask = [ord(x) for x in self.websocket_buffer[pos:pos + 4]]
+			mask = [bord(x) for x in self.websocket_buffer[pos:pos + 4]]
 			pos += 4
 			data = self.websocket_buffer[pos:pos + 4 + l]
 			self.websocket_buffer = self.websocket_buffer[pos + 4 + l:]
 			# The following is slow!
 			# Don't do it if the mask is 0; this is always true if talking to another program using this module.
 			if mask != [0, 0, 0, 0]:
-				data = ''.join([chr(ord(x) ^ mask[i & 3]) for i, x in enumerate(data)])
+				data = bytelist([bord(x) ^ mask[i & 3] for i, x in enumerate(data)])
 		else:
 			data = self.websocket_buffer[pos:pos + l]
 			self.websocket_buffer = self.websocket_buffer[pos + l:]
-		if(ord(header[0]) & 0x80) != 0x80:
+		if(bord(header[0]) & 0x80) != 0x80:
 			# fragment found; not last.
 			if opcode != 0:
 				# Protocol error.
@@ -214,7 +234,7 @@ Sec-WebSocket-Key: 0\r
 			return None
 		if opcode == 1:
 			# Text.
-			data = unicode(data, 'utf-8', 'replace')
+			data = makestr(data)
 			if sync:
 				return data
 			if self.recv:
@@ -228,30 +248,29 @@ Sec-WebSocket-Key: 0\r
 			if self.recv:
 				self.recv(self, data)
 			else:
-				log('warning: ignoring incoming websocket frame(binary)')
+				log('warning: ignoring incoming websocket frame (binary)')
 	# }}}
 	def send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
 		#log('websend:' + repr(data))
 		assert opcode in(0, 1, 2, 8, 9, 10)
 		if self._is_closed:
 			return None
-		if isinstance(data, unicode):
-			data = data.encode('utf-8')
+		data = makebytes(data)
 		if self.mask[1]:
 			maskchar = 0x80
-			# Masks are stupid, but the standard requires them.  Don't waste time on encoding(or decoding, if also using this module).
-			mask = '\0\0\0\0'
+			# Masks are stupid, but the standard requires them.  Don't waste time on encoding (or decoding, if also using this module).
+			mask = b'\0\0\0\0'
 		else:
 			maskchar = 0
-			mask = ''
+			mask = b''
 		if len(data) < 126:
-			l = chr(maskchar | len(data))
+			l = byte(maskchar | len(data))
 		elif len(data) < 1 << 16:
-			l = chr(maskchar | 126) + struct.pack('!H', len(data))
+			l = byte(maskchar | 126) + struct.pack('!H', len(data))
 		else:
-			l = chr(maskchar | 127) + struct.pack('!Q', len(data))
+			l = byte(maskchar | 127) + struct.pack('!Q', len(data))
 		try:
-			self.socket.send(chr(0x80 | opcode) + l + mask + data)
+			self.socket.send(byte(0x80 | opcode) + l + mask + data)
 		except:
 			# Something went wrong; close the socket(in case it wasn't yet).
 			if DEBUG > 0:
@@ -261,7 +280,7 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 8:
 			self.socket.close()
 	# }}}
-	def ping(self, data = ''): # Send a ping; return False if no pong was seen for previous ping.  {{{
+	def ping(self, data = b''): # Send a ping; return False if no pong was seen for previous ping.  {{{
 		if not self._pong:
 			return False
 		self._pong = False
@@ -269,7 +288,7 @@ Sec-WebSocket-Key: 0\r
 		return True
 	# }}}
 	def close(self):	# Close a WebSocket.  (Use self.socket.close for other connections.)  {{{
-		self.send('', 8)
+		self.send(b'', 8)
 		self.socket.close()
 	# }}}
 	def opened(self): # {{{
@@ -291,9 +310,9 @@ class WAIT:
 # c = websockets.call(resumeinfo, target, args...)
 # while c(): c.args = (yield websockets.WAIT)
 # resumeinfo[1] will contain the returned value.
-# When calling from a regular context(not in a generator), use None for
+# When calling from a regular context (not in a generator), use None for
 # resumeinfo and call the result, like so:
-# websockets.call(None, target, args...) ()
+# websockets.call(None, target, args...)()
 class call:
 	def __init__(self, resumeinfo, target, *a, **ka):
 		if resumeinfo is None:
@@ -334,7 +353,8 @@ class RPC(Websocket): # {{{
 	def get_index(cls): # {{{
 		while cls.index in cls.calls:
 			cls.index += 1
-		if type(cls.index) is long:
+		# Put a limit on the index values.
+		if cls.index >= 1 << 31:
 			cls.index = 0
 			while cls.index in cls.calls:
 				cls.index += 1
@@ -385,7 +405,7 @@ class RPC(Websocket): # {{{
 	# }}}
 	def _send(self, type, object): # {{{
 		#log('sending:' + repr(type) + repr(object))
-		Websocket.send(self, json.dumps((type, object)))
+		Websocket.send(self, makebytes(json.dumps((type, object))))
 	# }}}
 	def _parse_frame(self, frame): # {{{
 		try:
@@ -394,14 +414,14 @@ class RPC(Websocket): # {{{
 		except ValueError:
 			log('non-json frame: %s' % repr(frame))
 			return(None, 'non-json frame')
-		if type(data) is not list or len(data) != 2 or type(data[0]) is not unicode:
+		if type(data) is not list or len(data) != 2 or not isstr(data[0]):
 			log('invalid frame %s' % repr(data))
 			return(None, 'invalid frame')
-		if data[0] == u'call':
-			if not hasattr(self._target, data[1][1]) or not callable(getattr(self._target, data[1][1])):
+		if data[0] == 'call':
+			if not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable):
 				log('invalid call frame %s' % repr(data))
 				return(None, 'invalid frame')
-		elif data[0] not in(u'error', u'return'):
+		elif data[0] not in ('error', 'return'):
 			log('invalid frame type %s' % repr(data))
 			return(None, 'invalid frame')
 		return data
@@ -426,10 +446,10 @@ class RPC(Websocket): # {{{
 				self._call(data[1][0], data[1][1], data[1][2], data[1][3])
 			else:
 				raise ValueError('invalid RPC command %s' % data[0])
-		except AssertionError, e:
+		except AssertionError as e:
 			self._send('error', traceback.format_exc())
 		except:
-			log('error: %s' % str(sys.exc_value))
+			log('error: %s' % str(sys.exc_info()[1]))
 			self._send('error', traceback.format_exc())
 			#raise
 	# }}}
@@ -470,7 +490,7 @@ if network.have_glib: # {{{
 			self.websocket = websocket
 			self.headers = {}
 			self.address = None
-			self.socket.disconnect_cb(lambda socket, data: '')	# Ignore disconnect until it is a WebSocket.
+			self.socket.disconnect_cb(lambda socket, data: b'')	# Ignore disconnect until it is a WebSocket.
 			self.socket.readlines(self._line)
 			#log('Debug: new connection from %s\n' % repr(self.socket.remote))
 		# }}}
@@ -480,14 +500,14 @@ if network.have_glib: # {{{
 				if not l.strip():
 					self._handle_headers()
 					return
-				key, value = l.split(':', 1)
+				key, value = makestr(l).split(':', 1)
 				self.headers[key] = value.strip()
 				return
 			else:
 				try:
-					self.method, url, self.standard = l.split()
-					self.address = urlparse.urlparse(url)
-					self.query = urlparse.parse_qs(self.address.query)
+					self.method, url, self.standard = makestr(l).split()
+					self.address = urlparse(url)
+					self.query = parse_qs(self.address.query)
 				except:
 					self.server.reply(self, 400)
 					self.socket.close()
@@ -509,7 +529,7 @@ if network.have_glib: # {{{
 						self.server.reply(self, 400)
 						self.socket.close()
 						return
-					pwdata = base64.b64decode(auth[1]).split(':', 1)
+					pwdata = base64.b64decode(makebytes(auth[1])).split(':', 1)
 					if len(pwdata) != 2:
 						self.server.reply(self, 400)
 						self.socket.close()
@@ -529,7 +549,7 @@ if network.have_glib: # {{{
 				except:
 					if DEBUG > 0:
 						traceback.print_exc()
-					log('exception: %s\n' % repr(sys.exc_value))
+					log('exception: %s\n' % repr(sys.exc_info()[1]))
 					self.server.reply(self, 500)
 					self.socket.close()
 				return
@@ -538,28 +558,28 @@ if network.have_glib: # {{{
 				self.server.reply(self, 400)
 				self.socket.close()
 				return
-			newkey = base64.b64encode(hashlib.sha1(self.headers['Sec-WebSocket-Key'].strip() + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest())
+			newkey = makestr(base64.b64encode(hashlib.sha1(makebytes(self.headers['Sec-WebSocket-Key'].strip()) + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()))
 			headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
 			self.server.reply(self, 101, None, None, headers)
 			self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, mask = (None, False), websockets = self.server.websockets, data = self.data)
 		# }}}
 		def _reply_websocket(self, message, content_type):	# {{{
-			m = ''
+			m = b''
 			e = 0
 			protocol = 'wss://' if hasattr(self.socket.socket, 'ssl_version') else 'ws://'
 			host = self.headers['Host']
-			for match in re.finditer(self.server.websocket_re, message):
+			for match in re.finditer(self.server.websocket_re, makestr(message)):
 				g = match.groups()
 				if len(g) > 0 and g[0]:
 					extra = ' + ' + g[0]
 				else:
 					extra = ''
-				m += message[e:match.start()] + '''function() {
+				m += message[e:match.start()] + makebytes('''function() {
 			if(window.hasOwnProperty('MozWebSocket'))
 				return new MozWebSocket('%s%s'%s);
 			else
 				return new WebSocket('%s%s'%s);
-		} ()''' % (protocol, host, extra, protocol, host, extra)
+		} ()''' % (protocol, host, extra, protocol, host, extra))
 				e = match.end()
 			m += message[e:]
 			self.server.reply(self, 200, m, content_type)
@@ -632,20 +652,20 @@ if network.have_glib: # {{{
 		def reply(self, connection, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
 			assert code in known_codes
 			#log('Debug: sending reply %d %s for %s\n' % (code, known_codes[code], connection.address.path))
-			connection.socket.send('HTTP/1.1 %d %s\r\n' % (code, known_codes[code]))
+			connection.socket.send(makebytes('HTTP/1.1 %d %s\r\n' % (code, known_codes[code])))
 			if headers is None:
 				headers = {}
 			if message is None and code != 101:
 				assert content_type is None
 				content_type = 'text/html;charset=utf-8'
-				message = '<!DOCTYPE html><html><head><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code])
+				message = makebytes('<!DOCTYPE html><html><head><title>%s: %s</title></head><body><h1>%s: %s</h1></body></html>' % (code, known_codes[code], code, known_codes[code]))
 			if content_type is not None:
 				headers['Content-Type'] = content_type
 				headers['Content-Length'] = len(message)
 			else:
 				assert code == 101
-				message = ''
-			connection.socket.send(''.join(['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n' + message)
+				message = b''
+			connection.socket.send(makebytes(''.join(['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n') + message)
 		# }}}
 		# }}}
 		# If httpdirs is not given, or special handling is desired, this can be overloaded.
@@ -691,7 +711,7 @@ if network.have_glib: # {{{
 					log('no file %s(with supported extension) found in %s' % (base, ', '.join(self.httpdirs)))
 					self.reply(connection, 404)
 					return
-			return self.exts[ext] (connection, open(filename).read())
+			return self.exts[ext] (connection, open(filename, 'rb').read())
 		# }}}
 	# }}}
 	class RPChttpd(Httpd): # {{{
