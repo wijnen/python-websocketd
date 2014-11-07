@@ -1,5 +1,5 @@
-python-websockets (0.1-1) UNRELEASED; urgency=low
+python-websockets (0.1-1) unstable; urgency=low
 
-  * Initial release. (Closes: #XXXXXX)
+  * Initial release.
 
- -- Bas Wijnen <wijnen@debian.org>  Fri, 21 Mar 2014 00:17:59 -0400
+ -- Bas Wijnen <wijnen@debian.org>  Wed, 08 Oct 2014 01:42:54 -0400
