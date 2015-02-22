@@ -20,7 +20,7 @@
 
 # imports.  {{{
 import network
-from network import fgloop, bgloop, endloop, log
+from network import fgloop, bgloop, endloop, log, set_log_output
 import os
 import re
 import sys
@@ -29,9 +29,17 @@ import hashlib
 import struct
 import json
 import collections
+import tempfile
+import time
 import traceback
 # }}}
 
+# Debug levels:
+# 0: No debugging.
+# 1: Tracebacks on errors.
+# 2: Incoming and outgoing RPC packets.
+# 3: Incomplete packet information.
+# 4: All incoming and outgoing data.
 DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
 
 # Some workarounds to make this file work in both python2 and python3. {{{
@@ -138,7 +146,7 @@ Sec-WebSocket-Key: 0\r
 		#log('received: ' + repr(data))
 		if DEBUG > 2:
 			log('received %d bytes' % len(data))
-		if DEBUG > 4:
+		if DEBUG > 3:
 			log('data: ' + ' '.join(['%02x' % bord(x) for x in data]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in data]))
 		self.websocket_buffer += data
 		if bord(self.websocket_buffer[0]) & 0x70:
@@ -148,7 +156,7 @@ Sec-WebSocket-Key: 0\r
 			return None
 		if len(self.websocket_buffer) < 2:
 			# Not enough data for length bytes.
-			if DEBUG > 3:
+			if DEBUG > 2:
 				log('no length yet')
 			return None
 		b = bord(self.websocket_buffer[1])
@@ -162,7 +170,7 @@ Sec-WebSocket-Key: 0\r
 		if b == 127:
 			if len(self.websocket_buffer) < 10:
 				# Not enough data for length bytes.
-				if DEBUG > 3:
+				if DEBUG > 2:
 					log('no 4 length yet')
 				return None
 			l = struct.unpack('!Q', self.websocket_buffer[2:10])[0]
@@ -170,7 +178,7 @@ Sec-WebSocket-Key: 0\r
 		elif b == 126:
 			if len(self.websocket_buffer) < 4:
 				# Not enough data for length bytes.
-				if DEBUG > 3:
+				if DEBUG > 2:
 					log('no 2 length yet')
 				return None
 			l = struct.unpack('!H', self.websocket_buffer[2:4])[0]
@@ -180,7 +188,7 @@ Sec-WebSocket-Key: 0\r
 			pos = 2
 		if len(self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
 			# Not enough data for packet.
-			if DEBUG > 3:
+			if DEBUG > 2:
 				log('no packet yet(%d < %d)' % (len(self.websocket_buffer), pos + (4 if have_mask else 0) + l))
 			return None
 		header = self.websocket_buffer[:pos]
@@ -210,7 +218,7 @@ Sec-WebSocket-Key: 0\r
 			return None
 		# Complete frame has been received.
 		data = self.websocket_fragments + data
-		self.websocket_fragments = ''
+		self.websocket_fragments = b''
 		if opcode == 8:
 			# Connection close request.
 			self.close()
@@ -242,7 +250,8 @@ Sec-WebSocket-Key: 0\r
 				log('warning: ignoring incoming websocket frame (binary)')
 	# }}}
 	def send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
-		#log('websend:' + repr(data))
+		if DEBUG > 3:
+			log('websend:' + repr(data))
 		assert opcode in(0, 1, 2, 8, 9, 10)
 		if self._is_closed:
 			return None
@@ -395,7 +404,8 @@ class RPC(Websocket): # {{{
 		# }}}
 	# }}}
 	def _send(self, type, object): # {{{
-		#log('sending:' + repr(type) + repr(object))
+		if DEBUG > 1:
+			log('sending:' + repr(type) + repr(object))
 		Websocket.send(self, makebytes(json.dumps((type, object))))
 	# }}}
 	def _parse_frame(self, frame): # {{{
@@ -426,8 +436,11 @@ class RPC(Websocket): # {{{
 			return
 		elif data[0] == 'error':
 			if DEBUG > 0:
-				traceback.print_exc()
+				traceback.print_stack()
 			raise ValueError(data[1])
+		elif data[0] == 'event':
+			# Do nothing with this; the packet is already logged if DEBUG > 1.
+			return
 		elif data[0] == 'return':
 			assert data[1][0] in RPC.calls
 			RPC.calls[data[1][0]] (data[1][1])
@@ -496,8 +509,8 @@ if network.have_glib:
 				return
 			else:
 				try:
-					self.method, url, self.standard = makestr(l).split()
-					self.address = urlparse(url)
+					self.method, self.url, self.standard = makestr(l).split()
+					self.address = urlparse(self.url)
 					self.query = parse_qs(self.address.query)
 				except:
 					self.server.reply(self, 400)
@@ -767,19 +780,25 @@ if network.have_glib:
 			m = b''
 			e = 0
 			protocol = 'wss://' if hasattr(self.socket.socket, 'ssl_version') else 'ws://'
-			host = self.headers['host']
+			url = urlparse(self.headers.get('referer', self.url))
+			target = protocol + self.headers.get('host') + url.path
+			if url.fragment:
+				target += '#' + url.fragment
+			if url.query:
+				target += '?' + url.query
 			for match in re.finditer(self.server.websocket_re, makestr(message)):
 				g = match.groups()
 				if len(g) > 0 and g[0]:
 					extra = ' + ' + g[0]
 				else:
 					extra = ''
-				m += message[e:match.start()] + makebytes('''function() {
-			if(window.hasOwnProperty('MozWebSocket'))
-				return new MozWebSocket('%s%s'%s);
-			else
-				return new WebSocket('%s%s'%s);
-		} ()''' % (protocol, host, extra, protocol, host, extra))
+				m += message[e:match.start()] + makebytes('''\
+function() {\
+ if (window.hasOwnProperty('MozWebSocket'))\
+ return new MozWebSocket('%s'%s);\
+ else\
+ return new WebSocket('%s'%s);\
+ }()''' % (target, extra, target, extra))
 				e = match.end()
 			m += message[e:]
 			self.server.reply(self, 200, m, content_type)
@@ -921,6 +940,31 @@ if network.have_glib:
 			def __init__(self, *a, **ka):
 				Httpd_connection.__init__(self, websocket = RPC, *a, **ka)
 		def __init__(self, port, target, *a, **ka): # {{{
+			if 'log' in ka:
+				name = ka.pop('log')
+				if name:
+					global DEBUG
+					if DEBUG < 2:
+						DEBUG = 2
+					if os.path.isdir(name):
+						n = os.path.join(name, time.strftime('%F %T%z'))
+						old = n
+						i = 0
+						while os.path.exists(n):
+							i += 1
+							n = '%s.%d' % (old, i)
+					else:
+						n = name
+					try:
+						f = open(n, 'a')
+						if n != name:
+							sys.stderr.write('Logging to %s\n' % n)
+					except IOError:
+						fd, n = tempfile.mkstemp(prefix = os.path.basename(n) + '-' + time.strftime('%F %T%z') + '-', text = True)
+						sys.stderr.write('Opening file %s failed, using tempfile instead: %s\n' % (name, n))
+						f = os.fdopen(fd, 'a')
+					network.set_log_output(f)
+					log('Start logging to %s, commandline = %s' % (n, repr(sys.argv)))
 			Httpd.__init__(self, port, target, RPChttpd.RPCconnection, *a, **ka)
 		# }}}
 	# }}}
