@@ -104,7 +104,11 @@ function _rpc_message(websocket, obj, frame)
 		try
 		{
 			var id = data[1][0];
-			var ret = obj[data[1][1]].apply(obj, data[1][2]);
+			var ret;
+			if (data[1][1] in obj)
+				ret = obj[data[1][1]].apply (obj, data[1][2]);
+			else
+				ret = obj[''].apply (obj, [data[1][1]].concat (data[1][2]));
 			if (id != null)
 				websocket.send(_rpc_tojson(['return', [id, ret]]));
 		}

@@ -34,12 +34,18 @@ import time
 import traceback
 # }}}
 
+#def tracer(a, b, c):
+#	print('trace: %s:%d:\t%s' % (a.f_code.co_filename, a.f_code.co_firstlineno, a.f_code.co_name))
+#
+#sys.settrace(tracer)
+
 # Debug levels:
 # 0: No debugging.
 # 1: Tracebacks on errors.
 # 2: Incoming and outgoing RPC packets.
 # 3: Incomplete packet information.
 # 4: All incoming and outgoing data.
+# 5: Non-websocket data.
 DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
 
 # Some workarounds to make this file work in both python2 and python3. {{{
@@ -499,7 +505,8 @@ if network.have_glib:
 			#log('Debug: new connection from %s\n' % repr(self.socket.remote))
 		# }}}
 		def _line(self, l):	# {{{
-			#log('Debug: Received line: %s\n' % l)
+			if DEBUG > 4:
+				log('Debug: Received line: %s\n' % l)
 			if self.address is not None:
 				if not l.strip():
 					self._handle_headers()
@@ -547,24 +554,25 @@ if network.have_glib:
 						return
 			if not is_websocket:
 				self.body = self.socket.unread()
+				print(repr(self.body))
 				if self.method.upper() == 'POST':
 					if 'content-type' not in self.headers or self.headers['content-type'].lower().split(';')[0].strip() != 'multipart/form-data':
 						log('Invalid Content-Type for POST; must be multipart/form-data (not %s)\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
 						self.server.reply(self, 500)
 						self.socket.close()
 						return
-					args = self._parse_args(self.headers['content-type'])
+					args = self._parse_args(self.headers['content-type'])[1]
 					if 'boundary' not in args:
-						log('Invalid Content-Type for POST: missing boundary\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
+						log('Invalid Content-Type for POST: missing boundary in %s\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
 						self.server.reply(self, 500)
 						self.socket.close()
 						return
-					self.boundary = '\r\n' + '--' + args['boundary'] + '\r\n'
-					self.endboundary = '\r\n' + '--' + args['boundary'] + '--\r\n'
+					self.boundary = makebytes('\r\n' + '--' + args['boundary'] + '\r\n')
+					self.endboundary = makebytes('\r\n' + '--' + args['boundary'] + '--\r\n')
 					self.post_state = None
 					self.post = {}
 					self.socket.read(self._post)
-					self._post('')
+					self._post(b'')
 				try:
 					if not self.server.page(self):
 						self.socket.close()
@@ -590,11 +598,11 @@ if network.have_glib:
 			pos = 0
 			while True:
 				p = message.index(b'\r\n', pos)
-				ln = message[pos:p]
+				ln = makestr(message[pos:p])
 				pos = p + 2
-				if ln == b'':
+				if ln == '':
 					break
-				if ln[0] in b' \t':
+				if ln[0] in ' \t':
 					if len(lines) == 0:
 						log('header starts with continuation')
 					else:
@@ -613,37 +621,39 @@ if network.have_glib:
 			return ret, message[pos:]
 		# }}}
 		def _parse_args(self, header): # {{{
-			if b';' not in header:
+			log('parse args: ' + repr(header))
+			if ';' not in header:
 				return (header.strip(), {})
-			pos = header.index(b';')
+			pos = header.index(';') + 1
 			main = header[:pos].strip()
 			ret = {}
-			while True:
-				if b'=' not in header[pos:]:
-					log('header argument does not have a value')
+			while pos < len(header):
+				if '=' not in header[pos:]:
+					if header[pos:].strip() != '':
+						log('header argument %s does not have a value' % header[pos:].strip())
 					return main, ret
-				p = header.index(b'=', pos)
+				p = header.index('=', pos)
 				key = header[pos:p].strip().lower()
 				pos = p + 1
-				value = b''
+				value = ''
 				quoted = False
 				while True:
 					first = (len(header), None)
-					if not quoted and b';' in header[pos:]:
-						s = header.index(b';', pos)
-						if s < first:
+					if not quoted and ';' in header[pos:]:
+						s = header.index(';', pos)
+						if s < first[0]:
 							first = (s, ';')
-					if b'"' in header[pos:]:
-						q = header.index(b'"', pos)
-						if q < first:
+					if '"' in header[pos:]:
+						q = header.index('"', pos)
+						if q < first[0]:
 							first = (q, '"')
-					if b'\\' in header[pos:]:
-						b = header.index(b'\\', pos)
-						if b < first:
+					if '\\' in header[pos:]:
+						b = header.index('\\', pos)
+						if b < first[0]:
 							first = (b, '\\')
 					value += header[pos:first[0]]
 					pos = first[0] + 1
-					if first[1] == ';':
+					if first[1] == ';' or first[1] is None:
 						break
 					if first[1] == '\\':
 						value += header[pos]
@@ -651,15 +661,17 @@ if network.have_glib:
 						continue
 					quoted = not quoted
 				ret[key] = value
+			return main, ret
 		# }}}
 		def _post(self, data):	# {{{
 			self.body += data
 			if self.post_state is None:
 				# Waiting for first boundary.
-				if self.boundary not in self.body:
-					if self.endboundary in self.body:
+				if self.boundary not in b'\r\n' + self.body:
+					if self.endboundary in b'\r\n' + self.body:
 						self._finish_post()
 					return
+				self.body = b'\r\n' + self.body
 				self.body = self.body[self.body.index(self.boundary) + len(self.boundary):]
 				self.post_state = 0
 				# Fall through.
@@ -699,7 +711,7 @@ if network.have_glib:
 						name = None
 						filename = None
 					fd, self.post_file = tempfile.mkstemp()
-					self.post_handle = os.fdopen(fd)
+					self.post_handle = os.fdopen(fd, 'wb')
 					if name in self.post:
 						os.remove(self.post[name][2])
 					self.post[name] = (headers, filename, self.post_file)
@@ -932,7 +944,9 @@ function() {\
 					return
 			return self.exts[ext](connection, open(filename, 'rb').read())
 		# }}}
-		def post(self, connection):	# A non-WebSocket page was requested with POST.  Same as page() above, plus connection.post, which is a dict of name:(headers, sent_filename, local_filename).  When done, the local files are unlinked; remove the items from the dict to prevent this.  The default is not to respond at all (so POST cannot be used to retrieve static pages!)
+		def post(self, connection):	# A non-WebSocket page was requested with POST.  Same as page() above, plus connection.post, which is a dict of name:(headers, sent_filename, local_filename).  When done, the local files are unlinked; remove the items from the dict to prevent this.  The default is to return an error (so POST cannot be used to retrieve static pages!)
+			log('Warning: ignoring POST request.')
+			self.reply(connection, 501)
 			return False
 	# }}}
 	class RPChttpd(Httpd): # {{{
