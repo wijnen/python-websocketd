@@ -569,7 +569,7 @@ if network.have_glib:
 					self.boundary = makebytes('\r\n' + '--' + args['boundary'] + '\r\n')
 					self.endboundary = makebytes('\r\n' + '--' + args['boundary'] + '--\r\n')
 					self.post_state = None
-					self.post = {}
+					self.post = [{}, {}]
 					self.socket.read(self._post)
 					self._post(b'')
 				else:
@@ -682,9 +682,9 @@ if network.have_glib:
 					headers, self.body = self._parse_headers(self.body)
 					self.post_state = 1
 					if 'content-type' not in headers:
-						self.post_type = ('text/plain', {'charset': 'us-ascii'})
+						post_type = ('text/plain', {'charset': 'us-ascii'})
 					else:
-						self.post_type = self._parse_args(headers['content-type'])
+						post_type = self._parse_args(headers['content-type'])
 					if 'content-transfer-encoding' not in headers:
 						self.post_encoding = '7bit'
 					else:
@@ -699,21 +699,21 @@ if network.have_glib:
 					if 'content-disposition' in headers:
 						args = self._parse_args(headers['content-disposition'])[1]
 						if 'name' in args:
-							name = args['name']
+							self.post_name = args['name']
 						else:
-							name = None
+							self.post_name = None
 						if 'filename' in args:
-							filename = args['filename']
+							fd, self.post_file = tempfile.mkstemp()
+							self.post_handle = os.fdopen(fd, 'wb')
+							self.post[1][self.post_name] = (self.post_file, args['filename'], headers, post_type)
+							if self.post_name in self.post:
+								os.remove(self.post[self.post_name][2])
 						else:
-							filename = None
+							self.post_handle = None
 					else:
-						name = None
-						filename = None
-					fd, self.post_file = tempfile.mkstemp()
-					self.post_handle = os.fdopen(fd, 'wb')
-					if name in self.post:
-						os.remove(self.post[name][2])
-					self.post[name] = (headers, filename, self.post_file)
+						self.post_name = None
+					if self.post_handle is None:
+						self.post[0][self.post_name] = [b'', headers, post_type]
 					# Fall through.
 				if self.post_state == 1:
 					# Reading part body.
@@ -725,10 +725,17 @@ if network.have_glib:
 						self.body = self.body[:self.body.index(self.endboundary)]
 						self.post_state = None
 					decoded, self.body = self._post_decoder(self.body, self.post_state != 1)
-					self.post_handle.write(decoded)
+					if self.post_handle is not None:
+						self.post_handle.write(decoded)
+						if self.post_state != 1:
+							self.post_handle.close()
+					else:
+						self.post[0][self.post_name][0] += decoded
+						if self.post_state != 1:
+							if self.post[0][self.post_name][2][0] == 'text/plain':
+								self.post[0][self.post_name][0] = self.post[0][self.post_name][0].decode(self.post[0][self.post_name][2][1].get('charset', 'us-ascii'))
 					if self.post_state == 1:
 						break
-					self.post_handle.close()
 					if self.post_state is None:
 						self._finish_post()
 						return
@@ -737,8 +744,8 @@ if network.have_glib:
 		def _finish_post(self):	# {{{
 			if not self.server.post(self):
 				self.socket.close()
-			for f in self.post:
-				os.remove(self.post[f][2])
+			for f in self.post[1]:
+				os.remove(self.post[1][f][0])
 			del self.post
 		# }}}
 		def _base64_decoder(self, data, final):	# {{{
