@@ -554,7 +554,6 @@ if network.have_glib:
 						return
 			if not is_websocket:
 				self.body = self.socket.unread()
-				print(repr(self.body))
 				if self.method.upper() == 'POST':
 					if 'content-type' not in self.headers or self.headers['content-type'].lower().split(';')[0].strip() != 'multipart/form-data':
 						log('Invalid Content-Type for POST; must be multipart/form-data (not %s)\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
@@ -621,7 +620,6 @@ if network.have_glib:
 			return ret, message[pos:]
 		# }}}
 		def _parse_args(self, header): # {{{
-			log('parse args: ' + repr(header))
 			if ';' not in header:
 				return (header.strip(), {})
 			pos = header.index(';') + 1
