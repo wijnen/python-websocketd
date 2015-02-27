@@ -506,7 +506,7 @@ if network.have_glib:
 		# }}}
 		def _line(self, l):	# {{{
 			if DEBUG > 4:
-				log('Debug: Received line: %s\n' % l)
+				log('Debug: Received line: %s' % l)
 			if self.address is not None:
 				if not l.strip():
 					self._handle_headers()
@@ -572,15 +572,16 @@ if network.have_glib:
 					self.post = {}
 					self.socket.read(self._post)
 					self._post(b'')
-				try:
-					if not self.server.page(self):
+				else:
+					try:
+						if not self.server.page(self):
+							self.socket.close()
+					except:
+						if DEBUG > 0:
+							traceback.print_exc()
+						log('exception: %s\n' % repr(sys.exc_info()[1]))
+						self.server.reply(self, 500)
 						self.socket.close()
-				except:
-					if DEBUG > 0:
-						traceback.print_exc()
-					log('exception: %s\n' % repr(sys.exc_info()[1]))
-					self.server.reply(self, 500)
-					self.socket.close()
 				return
 			# Websocket.
 			if self.method.upper() != 'GET' or 'sec-websocket-key' not in self.headers:
