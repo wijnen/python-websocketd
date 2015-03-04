@@ -55,6 +55,10 @@ function Rpc(obj, onopen, onclose)
 	ret.onmessage = function(frame) { _rpc_message(ret, obj, frame.data); };
 	ret.call = function(name, a, ka, reply)
 	{
+		if (a === undefined)
+			a = [];
+		if (ka === undefined)
+			ka = {};
 		var my_id;
 		if (reply) {
 			_rpc_id += 1;
