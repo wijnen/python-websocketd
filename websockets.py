@@ -131,6 +131,8 @@ Sec-WebSocket-Key: 0\r
 		self.opened()
 		if len(hdrdata) > 0:
 			self._websocket_read(hdrdata)
+		if DEBUG > 2:
+			log('opened websocket')
 	# }}}
 	def _websocket_read(self, data, sync = False):	# {{{
 		# Websocket data consists of:
@@ -153,107 +155,108 @@ Sec-WebSocket-Key: 0\r
 		if DEBUG > 2:
 			log('received %d bytes' % len(data))
 		if DEBUG > 3:
+			log('waiting: ' + ' '.join(['%02x' % bord(x) for x in self.websocket_buffer]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in self.websocket_buffer]))
 			log('data: ' + ' '.join(['%02x' % bord(x) for x in data]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in data]))
 		self.websocket_buffer += data
-		if bord(self.websocket_buffer[0]) & 0x70:
-			# Protocol error.
-			log('extension stuff, not supported!')
-			self.socket.close()
-			return None
-		if len(self.websocket_buffer) < 2:
-			# Not enough data for length bytes.
-			if DEBUG > 2:
-				log('no length yet')
-			return None
-		b = bord(self.websocket_buffer[1])
-		have_mask = bool(b & 0x80)
-		b &= 0x7f
-		if have_mask and self.mask[0] is True or not have_mask and self.mask[0] is False:
-			# Protocol error.
-			log('mask error')
-			self.socket.close()
-			return None
-		if b == 127:
-			if len(self.websocket_buffer) < 10:
-				# Not enough data for length bytes.
-				if DEBUG > 2:
-					log('no 4 length yet')
-				return None
-			l = struct.unpack('!Q', self.websocket_buffer[2:10])[0]
-			pos = 10
-		elif b == 126:
-			if len(self.websocket_buffer) < 4:
-				# Not enough data for length bytes.
-				if DEBUG > 2:
-					log('no 2 length yet')
-				return None
-			l = struct.unpack('!H', self.websocket_buffer[2:4])[0]
-			pos = 4
-		else:
-			l = b
-			pos = 2
-		if len(self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
-			# Not enough data for packet.
-			if DEBUG > 2:
-				log('no packet yet(%d < %d)' % (len(self.websocket_buffer), pos + (4 if have_mask else 0) + l))
-			return None
-		header = self.websocket_buffer[:pos]
-		opcode = bord(header[0]) & 0xf
-		if have_mask:
-			mask = [bord(x) for x in self.websocket_buffer[pos:pos + 4]]
-			pos += 4
-			data = self.websocket_buffer[pos:pos + 4 + l]
-			self.websocket_buffer = self.websocket_buffer[pos + 4 + l:]
-			# The following is slow!
-			# Don't do it if the mask is 0; this is always true if talking to another program using this module.
-			if mask != [0, 0, 0, 0]:
-				data = bytelist([bord(x) ^ mask[i & 3] for i, x in enumerate(data)])
-		else:
-			data = self.websocket_buffer[pos:pos + l]
-			self.websocket_buffer = self.websocket_buffer[pos + l:]
-		if(bord(header[0]) & 0x80) != 0x80:
-			# fragment found; not last.
-			if opcode != 0:
+		while len(self.websocket_buffer) > 0:
+			if bord(self.websocket_buffer[0]) & 0x70:
 				# Protocol error.
-				log('invalid fragment')
+				log('extension stuff %x, not supported!' % bord(self.websocket_buffer[0]))
 				self.socket.close()
 				return None
-			self.websocket_fragments += data
-			if DEBUG > 2:
-				log('fragment recorded')
-			return None
-		# Complete frame has been received.
-		data = self.websocket_fragments + data
-		self.websocket_fragments = b''
-		if opcode == 8:
-			# Connection close request.
-			self.close()
-			return None
-		if opcode == 9:
-			# Ping.
-			self.send(data, 10)	# Pong
-			return None
-		if opcode == 10:
-			# Pong.
-			self._pong = True
-			return None
-		if opcode == 1:
-			# Text.
-			data = makestr(data)
-			if sync:
-				return data
-			if self.recv:
-				self.recv(self, data)
+			if len(self.websocket_buffer) < 2:
+				# Not enough data for length bytes.
+				if DEBUG > 2:
+					log('no length yet')
+				return None
+			b = bord(self.websocket_buffer[1])
+			have_mask = bool(b & 0x80)
+			b &= 0x7f
+			if have_mask and self.mask[0] is True or not have_mask and self.mask[0] is False:
+				# Protocol error.
+				log('mask error')
+				self.socket.close()
+				return None
+			if b == 127:
+				if len(self.websocket_buffer) < 10:
+					# Not enough data for length bytes.
+					if DEBUG > 2:
+						log('no 4 length yet')
+					return None
+				l = struct.unpack('!Q', self.websocket_buffer[2:10])[0]
+				pos = 10
+			elif b == 126:
+				if len(self.websocket_buffer) < 4:
+					# Not enough data for length bytes.
+					if DEBUG > 2:
+						log('no 2 length yet')
+					return None
+				l = struct.unpack('!H', self.websocket_buffer[2:4])[0]
+				pos = 4
 			else:
-				log('warning: ignoring incoming websocket frame')
-		if opcode == 2:
-			# Binary.
-			if sync:
-				return data
-			if self.recv:
-				self.recv(self, data)
+				l = b
+				pos = 2
+			if len(self.websocket_buffer) < pos + (4 if have_mask else 0) + l:
+				# Not enough data for packet.
+				if DEBUG > 2:
+					log('no packet yet(%d < %d)' % (len(self.websocket_buffer), pos + (4 if have_mask else 0) + l))
+				return None
+			header = self.websocket_buffer[:pos]
+			opcode = bord(header[0]) & 0xf
+			if have_mask:
+				mask = [bord(x) for x in self.websocket_buffer[pos:pos + 4]]
+				pos += 4
+				data = self.websocket_buffer[pos:pos + l]
+				# The following is slow!
+				# Don't do it if the mask is 0; this is always true if talking to another program using this module.
+				if mask != [0, 0, 0, 0]:
+					data = bytelist([bord(x) ^ mask[i & 3] for i, x in enumerate(data)])
 			else:
-				log('warning: ignoring incoming websocket frame (binary)')
+				data = self.websocket_buffer[pos:pos + l]
+			self.websocket_buffer = self.websocket_buffer[pos + l:]
+			if(bord(header[0]) & 0x80) != 0x80:
+				# fragment found; not last.
+				if opcode != 0:
+					# Protocol error.
+					log('invalid fragment')
+					self.socket.close()
+					return None
+				self.websocket_fragments += data
+				if DEBUG > 2:
+					log('fragment recorded')
+				return None
+			# Complete frame has been received.
+			data = self.websocket_fragments + data
+			self.websocket_fragments = b''
+			if opcode == 8:
+				# Connection close request.
+				self.close()
+				return None
+			if opcode == 9:
+				# Ping.
+				self.send(data, 10)	# Pong
+				return None
+			if opcode == 10:
+				# Pong.
+				self._pong = True
+				return None
+			if opcode == 1:
+				# Text.
+				data = makestr(data)
+				if sync:
+					return data
+				if self.recv:
+					self.recv(self, data)
+				else:
+					log('warning: ignoring incoming websocket frame')
+			if opcode == 2:
+				# Binary.
+				if sync:
+					return data
+				if self.recv:
+					self.recv(self, data)
+				else:
+					log('warning: ignoring incoming websocket frame (binary)')
 	# }}}
 	def send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
 		if DEBUG > 3:
@@ -492,7 +495,6 @@ class RPC(Websocket): # {{{
 
 if network.have_glib:
 	class Httpd_connection:	# {{{
-		# Internal functions.  {{{
 		def __init__(self, server, socket, httpdirs, websocket = Websocket): # {{{
 			self.server = server
 			self.socket = socket
@@ -525,6 +527,8 @@ if network.have_glib:
 				return
 		# }}}
 		def _handle_headers(self):	# {{{
+			if DEBUG > 4:
+				log('Debug: handling headers')
 			is_websocket = 'connection' in self.headers and 'upgrade' in self.headers and 'upgrade' in self.headers['connection'].lower() and 'websocket' in self.headers['upgrade'].lower()
 			self.data = {}
 			msg = self.server.auth_message(self, is_websocket) if callable(self.server.auth_message) else self.server.auth_message
@@ -553,6 +557,8 @@ if network.have_glib:
 							self.socket.close()
 						return
 			if not is_websocket:
+				if DEBUG > 4:
+					log('Debug: not a websocket')
 				self.body = self.socket.unread()
 				if self.method.upper() == 'POST':
 					if 'content-type' not in self.headers or self.headers['content-type'].lower().split(';')[0].strip() != 'multipart/form-data':
@@ -585,6 +591,8 @@ if network.have_glib:
 				return
 			# Websocket.
 			if self.method.upper() != 'GET' or 'sec-websocket-key' not in self.headers:
+				if DEBUG > 2:
+					log('Debug: invalid websocket')
 				self.server.reply(self, 400)
 				self.socket.close()
 				return
@@ -797,9 +805,8 @@ if network.have_glib:
 		def _reply_websocket(self, message, content_type):	# {{{
 			m = b''
 			e = 0
-			protocol = 'wss://' if hasattr(self.socket.socket, 'ssl_version') else 'ws://'
 			url = urlparse(self.headers.get('referer', self.url))
-			target = protocol + self.headers.get('host') + url.path
+			target = self.headers.get('x-forwarded-host', self.headers.get('host')) + url.path
 			if url.fragment:
 				target += '#' + url.fragment
 			if url.query:
@@ -809,18 +816,24 @@ if network.have_glib:
 				if len(g) > 0 and g[0]:
 					extra = ' + ' + g[0]
 				else:
+					# Make sure websocket uses a different address, to allow Apache to detect the protocol.
+					if target.endswith('/'):
+						target = target[:-1]
+					target += '/websocket'
 					extra = ''
 				m += message[e:match.start()] + makebytes('''\
 function() {\
+ var p = document.location.protocol;\
+ var wp = p[p.length - 2] == 's' ? 'wss:' : 'ws:';\
+ var target = wp + '%s'%s;\
  if (window.hasOwnProperty('MozWebSocket'))\
- return new MozWebSocket('%s'%s);\
+ return new MozWebSocket(target);\
  else\
- return new WebSocket('%s'%s);\
- }()''' % (target, extra, target, extra))
+ return new WebSocket(target);\
+ }()''' % (target, extra))
 				e = match.end()
 			m += message[e:]
 			self.server.reply(self, 200, m, content_type)
-		# }}}
 		# }}}
 	# }}}
 	class Httpd: # {{{
