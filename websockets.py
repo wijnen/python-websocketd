@@ -807,19 +807,21 @@ if network.have_glib:
 			e = 0
 			url = urlparse(self.headers.get('referer', self.url))
 			target = self.headers.get('x-forwarded-host', self.headers.get('host')) + url.path
+			if not target.endswith('/'):
+				target = target + '/'
+			aftertarget = ''
 			if url.fragment:
-				target += '#' + url.fragment
+				aftertarget += '#' + url.fragment
 			if url.query:
-				target += '?' + url.query
+				aftertarget += '?' + url.query
 			for match in re.finditer(self.server.websocket_re, makestr(message)):
 				g = match.groups()
 				if len(g) > 0 and g[0]:
+					wstarget = ''
 					extra = ' + ' + g[0]
 				else:
 					# Make sure websocket uses a different address, to allow Apache to detect the protocol.
-					if target.endswith('/'):
-						target = target[:-1]
-					target += '/websocket'
+					wstarget = 'websocket/'
 					extra = ''
 				m += message[e:match.start()] + makebytes('''\
 function() {\
@@ -830,7 +832,7 @@ function() {\
  return new MozWebSocket(target);\
  else\
  return new WebSocket(target);\
- }()''' % (target, extra))
+ }()''' % (target + wstarget + aftertarget, extra))
 				e = match.end()
 			m += message[e:]
 			self.server.reply(self, 200, m, content_type)
