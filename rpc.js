@@ -111,8 +111,10 @@ function _rpc_message(websocket, obj, frame)
 			var ret;
 			if (data[1][1] in obj)
 				ret = obj[data[1][1]].apply (obj, data[1][2]);
-			else
+			else if ('' in obj)
 				ret = obj[''].apply (obj, [data[1][1]].concat (data[1][2]));
+			else
+				debug('Warning: undefined function ' + data[1][1] + ' called, but no default callback defined');
 			if (id != null)
 				websocket.send(_rpc_tojson(['return', [id, ret]]));
 		}

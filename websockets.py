@@ -71,10 +71,11 @@ else:
 # }}}
 
 class Websocket: # {{{
-	def __init__(self, port, url = '/', recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, *a, **ka): # {{{
+	def __init__(self, port, url = '/', recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, *a, **ka): # {{{
 		self.recv = recv
 		if socket is None:
 			socket = network.Socket(port, *a, **ka)
+		self.remote = [real_remote or socket.remote[0], socket.remote[1]]
 		hdrdata = b''
 		if url is not None:
 			elist = []
@@ -155,8 +156,8 @@ Sec-WebSocket-Key: 0\r
 		if DEBUG > 2:
 			log('received %d bytes' % len(data))
 		if DEBUG > 3:
-			log('waiting: ' + ' '.join(['%02x' % bord(x) for x in self.websocket_buffer]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in self.websocket_buffer]))
-			log('data: ' + ' '.join(['%02x' % bord(x) for x in data]) + ''.join([x if 32 <= bord(x) < 127 else '.' for x in data]))
+			log('waiting: ' + ' '.join(['%02x' % bord(x) for x in self.websocket_buffer]) + ''.join([chr(bord(x)) if 32 <= bord(x) < 127 else '.' for x in self.websocket_buffer]))
+			log('data: ' + ' '.join(['%02x' % bord(x) for x in data]) + ''.join([chr(bord(x)) if 32 <= bord(x) < 127 else '.' for x in data]))
 		self.websocket_buffer += data
 		while len(self.websocket_buffer) > 0:
 			if bord(self.websocket_buffer[0]) & 0x70:
@@ -599,7 +600,7 @@ if network.have_glib:
 			newkey = makestr(base64.b64encode(hashlib.sha1(makebytes(self.headers['sec-websocket-key'].strip()) + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()))
 			headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
 			self.server.reply(self, 101, None, None, headers)
-			self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, mask = (None, False), websockets = self.server.websockets, data = self.data)
+			self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
 		# }}}
 		def _parse_headers(self, message): # {{{
 			lines = []
@@ -859,7 +860,7 @@ function() {\
 		def __call__(self, socket): # {{{
 			return self.http_connection(self, socket, self.httpdirs)
 		# }}}
-		def handle_ext(ext, mime): # {{{
+		def handle_ext(self, ext, mime): # {{{
 			self.exts[ext] = lambda socket, message: self.reply(socket, 200, message, mime)
 		# }}}
 		# Authentication. {{{
