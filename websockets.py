@@ -73,8 +73,15 @@ else:
 class Websocket: # {{{
 	def __init__(self, port, url = '/', recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, *a, **ka): # {{{
 		self.recv = recv
+		self.mask = mask
+		self.websockets = websockets
+		self.websocket_buffer = b''
+		self.websocket_fragments = b''
+		self._is_closed = False
+		self._pong = True	# If false, we're waiting for a pong.
 		if socket is None:
 			socket = network.Socket(port, *a, **ka)
+		self.socket = socket
 		self.remote = [real_remote or socket.remote[0], socket.remote[1]]
 		hdrdata = b''
 		if url is not None:
@@ -110,14 +117,7 @@ Sec-WebSocket-Key: 0\r
 					break
 				key, value = [x.strip() for x in makestr(line).split(':', 1)]
 				data[key] = value
-		self.socket = socket
-		self.mask = mask
-		self.websockets = websockets
 		self.data = data
-		self.websocket_buffer = b''
-		self.websocket_fragments = b''
-		self._is_closed = False
-		self._pong = True	# If false, we're waiting for a pong.
 		self.socket.read(self._websocket_read)
 		def disconnect(socket, data):
 			if not self._is_closed:
@@ -496,11 +496,12 @@ class RPC(Websocket): # {{{
 
 if network.have_glib:
 	class Httpd_connection:	# {{{
-		def __init__(self, server, socket, httpdirs, websocket = Websocket): # {{{
+		def __init__(self, server, socket, httpdirs, websocket = Websocket, proxy = ()): # {{{
 			self.server = server
 			self.socket = socket
 			self.httpdirs = httpdirs
 			self.websocket = websocket
+			self.proxy = proxy
 			self.headers = {}
 			self.address = None
 			self.socket.disconnect_cb(lambda socket, data: b'')	# Ignore disconnect until it is a WebSocket.
@@ -520,9 +521,17 @@ if network.have_glib:
 			else:
 				try:
 					self.method, self.url, self.standard = makestr(l).split()
+					for prefix in self.proxy:
+						if self.url.startswith('/' + prefix + '/') or self.url == '/' + prefix:
+							self.prefix = '/' + prefix + '/'
+							break
+					else:
+						self.prefix = ''
+					self.url = self.url[len(prefix) + 1:] or '/'
 					self.address = urlparse(self.url)
 					self.query = parse_qs(self.address.query)
 				except:
+					traceback.print_exc()
 					self.server.reply(self, 400)
 					self.socket.close()
 				return
@@ -840,10 +849,11 @@ function() {\
 		# }}}
 	# }}}
 	class Httpd: # {{{
-		def __init__(self, port, recv = None, http_connection = Httpd_connection, httpdirs = None, server = None, *a, **ka): # {{{
+		def __init__(self, port, recv = None, http_connection = Httpd_connection, httpdirs = None, server = None, proxy = (), *a, **ka): # {{{
 			self.recv = recv
 			self.http_connection = http_connection
 			self.httpdirs = httpdirs
+			self.proxy = proxy
 			self.websocket_re = r'#WEBSOCKET(?:\+(.*?))?#'
 			# Initial extensions which are handled from httpdirs; others can be added by the user.
 			self.exts = {
@@ -858,7 +868,7 @@ function() {\
 				self.server = server
 		# }}}
 		def __call__(self, socket): # {{{
-			return self.http_connection(self, socket, self.httpdirs)
+			return self.http_connection(self, socket, self.httpdirs, proxy = self.proxy)
 		# }}}
 		def handle_ext(self, ext, mime): # {{{
 			self.exts[ext] = lambda socket, message: self.reply(socket, 200, message, mime)
