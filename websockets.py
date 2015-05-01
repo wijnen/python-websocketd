@@ -541,7 +541,6 @@ if network.have_glib:
 						self.prefix = ''
 					address = urlparse(url)
 					path = address.path[len(self.prefix):] or '/'
-					log('%s, %s, %s, %s.' % (repr(address), path, self.prefix, url))
 					self.url = path + url[len(address.path):]
 					self.address = urlparse(self.url)
 					self.query = parse_qs(self.address.query)
