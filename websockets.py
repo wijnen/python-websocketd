@@ -371,9 +371,19 @@ class RPC(Websocket): # {{{
 		return cls.index
 	# }}}
 	def __init__(self, port, recv = None, *a, **ka): # {{{
+		self._delayed_calls = []
 		Websocket.__init__(self, port, recv = RPC._recv, *a, **ka)
 		self._target = recv(self) if recv is not None else None
-		#log('init:' + repr(recv) + ',' + repr(self._target))
+	# }}}
+	def __call__(self): # {{{
+		'''Activate the websocket; send initial frames.'''
+		calls = self._delayed_calls
+		self._delayed_calls = None
+		for call in calls:
+			if not hasattr(self._target, call[1]) or not isinstance(getattr(self._target, call[1]), collections.Callable):
+				self._send('error', 'invalid delayed call frame %s' % repr(call))
+			else:
+				self._call(call[0], call[1], call[2], call[3])
 	# }}}
 	class wrapper: # {{{
 		def __init__(self, base, attr): # {{{
@@ -386,11 +396,10 @@ class RPC(Websocket): # {{{
 			my_call = [None]
 			RPC.calls[my_id] = lambda x: my_call.__setitem__(0, (x,))	# Make it a tuple so it cannot be None.
 			while my_call[0] is None:
-				while True:
-					data = self.base._websocket_read(self.base.socket.recv(), True)
-					if data is not None:
-						break
-				self.base._recv(data)
+				data = self.base._websocket_read(self.base.socket.recv(), True)
+				while data is not None:
+					self.base._recv(data)
+					data = self.base._websocket_read(b'')
 			del RPC.calls[my_id]
 			return my_call[0][0]
 		# }}}
@@ -429,7 +438,7 @@ class RPC(Websocket): # {{{
 			log('invalid frame %s' % repr(data))
 			return(None, 'invalid frame')
 		if data[0] == 'call':
-			if not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable):
+			if self._delayed_calls is None and (not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable)):
 				log('invalid call frame %s' % repr(data))
 				return(None, 'invalid frame')
 		elif data[0] not in ('error', 'return'):
@@ -457,7 +466,10 @@ class RPC(Websocket): # {{{
 			return
 		try:
 			if data[0] == 'call':
-				self._call(data[1][0], data[1][1], data[1][2], data[1][3])
+				if self._delayed_calls is not None:
+					self._delayed_calls.append(data[1])
+				else:
+					self._call(data[1][0], data[1][1], data[1][2], data[1][3])
 			else:
 				raise ValueError('invalid RPC command %s' % data[0])
 		except AssertionError as e:
@@ -520,14 +532,17 @@ if network.have_glib:
 				return
 			else:
 				try:
-					self.method, self.url, self.standard = makestr(l).split()
+					self.method, url, self.standard = makestr(l).split()
 					for prefix in self.proxy:
-						if self.url.startswith('/' + prefix + '/') or self.url == '/' + prefix:
-							self.prefix = '/' + prefix + '/'
+						if url.startswith('/' + prefix + '/') or url == '/' + prefix:
+							self.prefix = '/' + prefix
 							break
 					else:
 						self.prefix = ''
-					self.url = self.url[len(prefix) + 1:] or '/'
+					address = urlparse(url)
+					path = address.path[len(self.prefix):] or '/'
+					log('%s, %s, %s, %s.' % (repr(address), path, self.prefix, url))
+					self.url = path + url[len(address.path):]
 					self.address = urlparse(self.url)
 					self.query = parse_qs(self.address.query)
 				except:
@@ -692,6 +707,7 @@ if network.have_glib:
 				self.body = self.body[self.body.index(self.boundary) + len(self.boundary):]
 				self.post_state = 0
 				# Fall through.
+			a = 20
 			while True:
 				if self.post_state == 0:
 					# Reading part headers.
@@ -735,13 +751,22 @@ if network.have_glib:
 					# Fall through.
 				if self.post_state == 1:
 					# Reading part body.
-					if self.boundary in self.body:
+					if self.endboundary in self.body:
+						p = self.body.index(self.endboundary)
+					else:
+						p = None
+					if self.boundary in self.body and (p is None or self.body.index(self.boundary) < p):
 						self.post_state = 0
 						rest = self.body[self.body.index(self.boundary) + len(self.boundary):]
 						self.body = self.body[:self.body.index(self.boundary)]
-					if self.endboundary in self.body:
-						self.body = self.body[:self.body.index(self.endboundary)]
+					elif p is not None:
+						self.body = self.body[:p]
 						self.post_state = None
+					else:
+						if len(self.body) <= len(self.boundary):
+							break
+						rest = self.body[-len(self.boundary):]
+						self.body = self.body[:-len(rest)]
 					decoded, self.body = self._post_decoder(self.body, self.post_state != 1)
 					if self.post_handle is not None:
 						self.post_handle.write(decoded)
@@ -752,12 +777,10 @@ if network.have_glib:
 						if self.post_state != 1:
 							if self.post[0][self.post_name][2][0] == 'text/plain':
 								self.post[0][self.post_name][0] = self.post[0][self.post_name][0].decode(self.post[0][self.post_name][2][1].get('charset', 'us-ascii'))
-					if self.post_state == 1:
-						break
 					if self.post_state is None:
 						self._finish_post()
 						return
-					self.body = rest
+					self.body += rest
 		# }}}
 		def _finish_post(self):	# {{{
 			if not self.server.post(self):
