@@ -954,14 +954,16 @@ function() {\
 		# }}}
 		# }}}
 		# If httpdirs is not given, or special handling is desired, this can be overloaded.
-		def page(self, connection):	# A non-WebSocket page was requested.  Use connection.address, connection.method, connection.query, connection.headers and connection.body (which should be empty) to find out more.  {{{
+		def page(self, connection, path = None):	# A non-WebSocket page was requested.  Use connection.address, connection.method, connection.query, connection.headers and connection.body (which should be empty) to find out more.  {{{
 			if self.httpdirs is None:
 				self.reply(connection, 501)
 				return
-			if connection.address.path == '/':
+			if path is None:
+				path = connection.address.path
+			if path == '/':
 				address = 'index'
 			else:
-				address = '/' + connection.address.path + '/'
+				address = '/' + path + '/'
 				while '/../' in address:
 					# Don't handle this; just ignore it.
 					pos = address.index('/../')
