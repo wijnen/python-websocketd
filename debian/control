@@ -1,11 +1,11 @@
-Source: python-websockets
+Source: python-websocketd
 Section: python
 Priority: optional
 Maintainer: Bas Wijnen <wijnen@debian.org>
 Build-Depends: debhelper (>= 9), python-all, python3-all, dh-python
 Standards-Version: 3.9.6
 
-Package: python-websockets
+Package: python-websocketd
 Architecture: all
 Depends: ${misc:Depends}, ${python:Depends}, python-network
 Description: python module for creating a http server which uses WebSockets
@@ -13,7 +13,7 @@ Description: python module for creating a http server which uses WebSockets
  and WebSockets over those connections.  With only 6 lines of code you have a
  working system.  You only have to add what you want your server to do.
 
-Package: python3-websockets
+Package: python3-websocketd
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends}, python3-network
 Description: python module for creating a http server which uses WebSockets

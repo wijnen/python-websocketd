@@ -1,7 +1,7 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: python-websockets
+Upstream-Name: python-websocketd
 Upstream-Contact: Bas Wijnen <wijnen@debian.org>
-Source: https://github.com/wijnen/python-websockets
+Source: https://github.com/wijnen/python-websocketd
 
 Files: *
 Copyright: Copyright 2013 Bas Wijnen <wijnen@debian.org>

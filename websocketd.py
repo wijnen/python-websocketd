@@ -20,7 +20,7 @@
 
 # imports.  {{{
 import network
-from network import fgloop, bgloop, endloop, log, set_log_output
+from network import endloop, log, set_log_output
 import os
 import re
 import sys
@@ -355,6 +355,8 @@ class call:
 		return self.resumeinfo[1]
 # }}}
 
+activation = [set(), None]
+
 class RPC(Websocket): # {{{
 	_generatortype = type((lambda: (yield))())
 	index = 0
@@ -371,12 +373,17 @@ class RPC(Websocket): # {{{
 		return cls.index
 	# }}}
 	def __init__(self, port, recv = None, *a, **ka): # {{{
+		activation[0].add(self)
+		if network.have_glib and activation[1] is None:
+			activation[1] = network.GLib.idle_add(activate_all)
 		self._delayed_calls = []
 		Websocket.__init__(self, port, recv = RPC._recv, *a, **ka)
 		self._target = recv(self) if recv is not None else None
 	# }}}
 	def __call__(self): # {{{
 		'''Activate the websocket; send initial frames.'''
+		if self._delayed_calls is None:
+			return
 		calls = self._delayed_calls
 		self._delayed_calls = None
 		for call in calls:
@@ -475,6 +482,7 @@ class RPC(Websocket): # {{{
 		except AssertionError as e:
 			self._send('error', traceback.format_exc())
 		except:
+			traceback.print_exc()
 			log('error: %s' % str(sys.exc_info()[1]))
 			self._send('error', traceback.format_exc())
 			#raise
@@ -506,6 +514,15 @@ class RPC(Websocket): # {{{
 	# }}}
 # }}}
 
+def activate_all(): # {{{
+	if activation[0] is not None:
+		for s in activation[0]:
+			s()
+	activation[0].clear()
+	activation[1] = None
+	return False
+# }}}
+
 if network.have_glib:
 	class Httpd_connection:	# {{{
 		def __init__(self, server, socket, httpdirs, websocket = Websocket, proxy = ()): # {{{
@@ -513,7 +530,7 @@ if network.have_glib:
 			self.socket = socket
 			self.httpdirs = httpdirs
 			self.websocket = websocket
-			self.proxy = proxy
+			self.proxy = (proxy,) if isinstance(proxy, str) else proxy
 			self.headers = {}
 			self.address = None
 			self.socket.disconnect_cb(lambda socket, data: b'')	# Ignore disconnect until it is a WebSocket.
@@ -1008,8 +1025,24 @@ function() {\
 	class RPChttpd(Httpd): # {{{
 		class RPCconnection(Httpd_connection):
 			def __init__(self, *a, **ka):
+				self.groups = set()
 				Httpd_connection.__init__(self, websocket = RPC, *a, **ka)
+		class Broadcast:
+			def __init__(self, server, group = None):
+				self.server = server
+				self.group = group
+			def __getitem__(self, item):
+				return RPChttpd.Broadcast(self.server, item)
+			def __getattr__(self, key):
+				if key.startswith('_'):
+					raise AttributeError('invalid member name')
+				def impl(*a, **ka):
+					for c in self.server.websockets:
+						if self.group is None or self.group in c.groups:
+							getattr(c, key).event(*a, **ka)
+				return impl
 		def __init__(self, port, target, *a, **ka): # {{{
+			self.broadcast = RPChttpd.Broadcast(self)
 			if 'log' in ka:
 				name = ka.pop('log')
 				if name:
@@ -1037,4 +1070,12 @@ function() {\
 					log('Start logging to %s, commandline = %s' % (n, repr(sys.argv)))
 			Httpd.__init__(self, port, target, RPChttpd.RPCconnection, *a, **ka)
 		# }}}
+	# }}}
+	def fgloop(*a, **ka): # {{{
+		activate_all()
+		return network.fgloop(*a, **ka)
+	# }}}
+	def bgloop(*a, **ka): # {{{
+		activate_all()
+		return network.bgloop(*a, **ka)
 	# }}}
