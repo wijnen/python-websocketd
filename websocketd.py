@@ -377,6 +377,7 @@ class RPC(Websocket): # {{{
 		if network.have_glib and activation[1] is None:
 			activation[1] = network.GLib.idle_add(activate_all)
 		self._delayed_calls = []
+		self._groups = set()
 		Websocket.__init__(self, port, recv = RPC._recv, *a, **ka)
 		self._target = recv(self) if recv is not None else None
 	# }}}
@@ -392,7 +393,7 @@ class RPC(Websocket): # {{{
 			else:
 				self._call(call[0], call[1], call[2], call[3])
 	# }}}
-	class wrapper: # {{{
+	class _wrapper: # {{{
 		def __init__(self, base, attr): # {{{
 			self.base = base
 			self.attr = attr
@@ -510,7 +511,7 @@ class RPC(Websocket): # {{{
 	def __getattr__(self, attr): # {{{
 		if attr.startswith('_'):
 			raise AttributeError('invalid RPC function name %s' % attr)
-		return RPC.wrapper(self, attr)
+		return RPC._wrapper(self, attr)
 	# }}}
 # }}}
 
@@ -870,7 +871,7 @@ if network.have_glib:
 					extra = ' + ' + g[0]
 				else:
 					# Make sure websocket uses a different address, to allow Apache to detect the protocol.
-					wstarget = 'websocket/'
+					wstarget = 'websocket/?%s' % self.address.query
 					extra = ''
 				m += message[e:match.start()] + makebytes('''\
 function() {\
@@ -1025,7 +1026,6 @@ function() {\
 	class RPChttpd(Httpd): # {{{
 		class RPCconnection(Httpd_connection):
 			def __init__(self, *a, **ka):
-				self.groups = set()
 				Httpd_connection.__init__(self, websocket = RPC, *a, **ka)
 		class Broadcast:
 			def __init__(self, server, group = None):
@@ -1038,7 +1038,7 @@ function() {\
 					raise AttributeError('invalid member name')
 				def impl(*a, **ka):
 					for c in self.server.websockets:
-						if self.group is None or self.group in c.groups:
+						if self.group is None or self.group in c._groups:
 							getattr(c, key).event(*a, **ka)
 				return impl
 		def __init__(self, port, target, *a, **ka): # {{{
