@@ -215,13 +215,15 @@ Sec-WebSocket-Key: 0\r
 			else:
 				data = self.websocket_buffer[pos:pos + l]
 			self.websocket_buffer = self.websocket_buffer[pos + l:]
-			if(bord(header[0]) & 0x80) != 0x80:
+			if len(self.websocket_fragments) == 0:
+				self.opcode = opcode
+			elif opcode != 0:
+				# Protocol error.
+				log('invalid fragment')
+				self.socket.close()
+				return None
+			if (bord(header[0]) & 0x80) != 0x80:
 				# fragment found; not last.
-				if opcode != 0:
-					# Protocol error.
-					log('invalid fragment')
-					self.socket.close()
-					return None
 				self.websocket_fragments += data
 				if DEBUG > 2:
 					log('fragment recorded')
@@ -229,19 +231,17 @@ Sec-WebSocket-Key: 0\r
 			# Complete frame has been received.
 			data = self.websocket_fragments + data
 			self.websocket_fragments = b''
-			if opcode == 8:
+			if self.opcode == 8:
 				# Connection close request.
 				self.close()
 				return None
-			if opcode == 9:
+			elif self.opcode == 9:
 				# Ping.
 				self.send(data, 10)	# Pong
-				return None
-			if opcode == 10:
+			elif self.opcode == 10:
 				# Pong.
 				self._pong = True
-				return None
-			if opcode == 1:
+			elif self.opcode == 1:
 				# Text.
 				data = makestr(data)
 				if sync:
@@ -250,7 +250,7 @@ Sec-WebSocket-Key: 0\r
 					self.recv(self, data)
 				else:
 					log('warning: ignoring incoming websocket frame')
-			if opcode == 2:
+			elif self.opcode == 2:
 				# Binary.
 				if sync:
 					return data
@@ -258,6 +258,9 @@ Sec-WebSocket-Key: 0\r
 					self.recv(self, data)
 				else:
 					log('warning: ignoring incoming websocket frame (binary)')
+			else:
+				log('invalid opcode')
+				self.socket.close()
 	# }}}
 	def send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
 		if DEBUG > 3:
