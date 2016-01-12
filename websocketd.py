@@ -576,6 +576,9 @@ if network.have_glib:
 				log('Debug: handling headers')
 			is_websocket = 'connection' in self.headers and 'upgrade' in self.headers and 'upgrade' in self.headers['connection'].lower() and 'websocket' in self.headers['upgrade'].lower()
 			self.data = {}
+			self.data['url'] = self.url
+			self.data['address'] = self.address
+			self.data['query'] = self.query
 			msg = self.server.auth_message(self, is_websocket) if callable(self.server.auth_message) else self.server.auth_message
 			if msg:
 				if 'authorization' not in self.headers:
@@ -874,7 +877,7 @@ if network.have_glib:
 					extra = ' + ' + g[0]
 				else:
 					# Make sure websocket uses a different address, to allow Apache to detect the protocol.
-					wstarget = 'websocket/?%s' % self.address.query
+					wstarget = 'websocket/'
 					extra = ''
 				m += message[e:match.start()] + makebytes('''\
 function() {\
