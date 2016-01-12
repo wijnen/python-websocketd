@@ -77,6 +77,7 @@ class Websocket: # {{{
 		self.websockets = websockets
 		self.websocket_buffer = b''
 		self.websocket_fragments = b''
+		self.opcode = None
 		self._is_closed = False
 		self._pong = True	# If false, we're waiting for a pong.
 		if socket is None:
@@ -215,7 +216,7 @@ Sec-WebSocket-Key: 0\r
 			else:
 				data = self.websocket_buffer[pos:pos + l]
 			self.websocket_buffer = self.websocket_buffer[pos + l:]
-			if len(self.websocket_fragments) == 0:
+			if self.opcode is None:
 				self.opcode = opcode
 			elif opcode != 0:
 				# Protocol error.
@@ -231,17 +232,19 @@ Sec-WebSocket-Key: 0\r
 			# Complete frame has been received.
 			data = self.websocket_fragments + data
 			self.websocket_fragments = b''
-			if self.opcode == 8:
+			opcode = self.opcode
+			self.opcode = None
+			if opcode == 8:
 				# Connection close request.
 				self.close()
 				return None
-			elif self.opcode == 9:
+			elif opcode == 9:
 				# Ping.
 				self.send(data, 10)	# Pong
-			elif self.opcode == 10:
+			elif opcode == 10:
 				# Pong.
 				self._pong = True
-			elif self.opcode == 1:
+			elif opcode == 1:
 				# Text.
 				data = makestr(data)
 				if sync:
@@ -250,7 +253,7 @@ Sec-WebSocket-Key: 0\r
 					self.recv(self, data)
 				else:
 					log('warning: ignoring incoming websocket frame')
-			elif self.opcode == 2:
+			elif opcode == 2:
 				# Binary.
 				if sync:
 					return data
