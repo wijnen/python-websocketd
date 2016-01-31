@@ -722,6 +722,7 @@ if network.have_glib:
 			return main, ret
 		# }}}
 		def _post(self, data):	# {{{
+			#log('post body %s data %s' % (repr(self.body), repr(data)))
 			self.body += data
 			if self.post_state is None:
 				# Waiting for first boundary.
@@ -755,7 +756,7 @@ if network.have_glib:
 					elif self.post_encoding == 'quoted-printable':
 						self._post_decoder = self._quopri_decoder
 					else:
-						self._post_decoder = lambda x, final: (x, '')
+						self._post_decoder = lambda x, final: (x, b'')
 					if 'content-disposition' in headers:
 						args = self._parse_args(headers['content-disposition'])[1]
 						if 'name' in args:
@@ -824,7 +825,7 @@ if network.have_glib:
 				c = data[pos]
 				pos += 1
 				if c not in table:
-					if c not in '\r\n':
+					if c not in b'\r\n':
 						log('ignoring invalid character %s in base64 string' % c)
 					continue
 				current.append(table.index(c))
@@ -843,12 +844,12 @@ if network.have_glib:
 			while b'=' in data[pos:-2]:
 				p = data.index(b'=', pos)
 				ret += data[:p]
-				if data[p + 1:p + 3] == '\r\n':
-					ret += '\n'
+				if data[p + 1:p + 3] == b'\r\n':
+					ret += b'\n'
 					pos = p + 3
 					continue
-				if any(x not in '0123456789ABCDEFabcdef' for x in data[p + 1:p + 3]):
-					log('invalid escaped sequence in quoted printable: %s' % data[p:p + 3])
+				if any(x not in b'0123456789ABCDEFabcdef' for x in data[p + 1:p + 3]):
+					log('invalid escaped sequence in quoted printable: %s' % makestr(data[p:p + 3]))
 					pos = p + 1
 					continue
 				ret += byte(int(data[p + 1:p + 3], 16))
