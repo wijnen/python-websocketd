@@ -1,3 +1,0 @@
-usr/lib/python2.*/*-packages/*
-rpc.js /usr/share/python-websocketd
-builders.js /usr/share/python-websocketd
