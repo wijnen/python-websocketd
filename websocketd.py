@@ -106,18 +106,18 @@ class Websocket: # {{{
 		if url is not None:
 			elist = []
 			for e in extra:
-				elist.append(b'%s: %s\r\n' % (e.encode('utf-8'), extra[e].encode('utf-8')))
+				elist.append('%s: %s\r\n' % (e, extra[e]))
 			if user is not None:
-				userpwd = (user + ':' + password).encode('utf-8') + b'\r\n'
+				userpwd = user + ':' + password + '\r\n'
 			else:
-				userpwd = b''
-			socket.send(b'''\
+				userpwd = ''
+			socket.send(('''\
 %s %s HTTP/1.1\r
 Connection: Upgrade\r
 Upgrade: websocket\r
 Sec-WebSocket-Key: 0\r
 %s%s\r
-''' % (method.encode('utf-8'), url.encode('utf-8'), userpwd, b''.join(elist)))
+''' % (method, url, userpwd, ''.join(elist))).encode('utf-8'))
 			while b'\n' not in hdrdata:
 				r = socket.recv()
 				if r == b'':
@@ -946,33 +946,34 @@ if network.have_glib:
 			m = b''
 			e = 0
 			url = urlparse(self.headers.get('referer', self.url))
-			target = (self.headers.get('x-forwarded-host', self.headers.get('host')) + url.path).encode('utf-8')
-			if not target.endswith(b'/'):
-				target = target + b'/'
-			aftertarget = b''
+			target = (self.headers.get('x-forwarded-host', self.headers.get('host')) + url.path)
+			if not target.endswith('/'):
+				target = target + '/'
+			aftertarget = ''
 			if url.fragment:
-				aftertarget += b'#' + url.fragment.encode('utf-8')
+				aftertarget += '#' + url.fragment
 			if url.query:
-				aftertarget += b'?' + url.query.encode('utf-8')
+				aftertarget += '?' + url.query
 			for match in re.finditer(self.server._websocket_re, message):
 				g = match.groups()
 				if len(g) > 0 and g[0]:
-					wstarget = b''
+					wstarget = ''
 					extra = b' + ' + g[0]
 				else:
 					# Make sure websocket uses a different address, to allow Apache to detect the protocol.
-					wstarget = b'websocket/'
+					wstarget = 'websocket/'
 					extra = b''
-				m += message[e:match.start()] + b'''\
+				m += message[e:match.start()] + ('''\
 function() {\
  var p = document.location.protocol;\
  var wp = p[p.length - 2] == 's' ? 'wss:' : 'ws:';\
- var target = wp + '%s'%s;\
+ var target = wp + '%s'\
+ ''' % (target + wstarget + aftertarget)).encode('utf-8') + extra + b''';\
  if (window.hasOwnProperty('MozWebSocket'))\
  return new MozWebSocket(target);\
  else\
  return new WebSocket(target);\
- }()''' % (target + wstarget + aftertarget, extra)
+ }()'''
 				e = match.end()
 			m += message[e:]
 			self.server.reply(self, 200, m, content_type)
@@ -1126,20 +1127,20 @@ function() {\
 			'''
 			assert code in httpcodes
 			#log('Debug: sending reply %d %s for %s\n' % (code, httpcodes[code], connection.address.path))
-			connection.socket.send(b'HTTP/1.1 %d %s\r\n' % (code, httpcodes[code].encode('utf-8')))
+			connection.socket.send(('HTTP/1.1 %d %s\r\n' % (code, httpcodes[code])).encode('utf-8'))
 			if headers is None:
 				headers = {}
 			if message is None and code != 101:
 				assert content_type is None
 				content_type = 'text/html;charset=utf-8'
-				message = b'<!DOCTYPE html><html><head><title>%d: %s</title></head><body><h1>%d: %s</h1></body></html>' % (code, httpcodes[code].encode('utf-8'), code, httpcodes[code].encode('utf-8'))
+				message = ('<!DOCTYPE html><html><head><title>%d: %s</title></head><body><h1>%d: %s</h1></body></html>' % (code, httpcodes[code], code, httpcodes[code])).encode('utf-8')
 			if content_type is not None:
 				headers['Content-Type'] = content_type
 				headers['Content-Length'] = '%d' % len(message)
 			else:
 				assert code == 101
 				message = b''
-			connection.socket.send(b''.join([b'%s: %s\r\n' % (x.encode('utf-8'), headers[x].encode('utf-8')) for x in headers]) + b'\r\n' + message)
+			connection.socket.send((''.join(['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n').encode('utf-8') + message)
 		# }}}
 		# }}}
 		# If httpdirs is not given, or special handling is desired, this can be overloaded.
