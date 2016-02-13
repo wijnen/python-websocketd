@@ -984,7 +984,7 @@ function() {\
 		This object implements an HTTP server.  It supports GET and
 		POST, and of course websockets.
 		'''
-		def __init__(self, port, recv = None, httpdirs = None, server = None, proxy = (), http_connection = _Httpd_connection, *a, **ka): # {{{
+		def __init__(self, port, recv = None, httpdirs = None, server = None, proxy = (), http_connection = _Httpd_connection, websocket = Websocket, *a, **ka): # {{{
 			'''Create a webserver.
 			Additional arguments are passed to the network.Server.
 			@param port: Port to listen on.  Same format as in
@@ -1003,6 +1003,7 @@ function() {\
 			self._http_connection = http_connection
 			self._httpdirs = httpdirs
 			self._proxy = proxy
+			self._websocket = websocket
 			self._websocket_re = b'#WEBSOCKET(?:\+(.*?))?#'
 			## Extensions which are handled from httpdirs.
 			# More items can be added by the user program.
@@ -1026,7 +1027,7 @@ function() {\
 			@param socket: Socket to add.
 			@return New connection object.
 			'''
-			return self._http_connection(self, socket, proxy = self._proxy)
+			return self._http_connection(self, socket, proxy = self._proxy, websocket = self._websocket)
 		# }}}
 		def handle_ext(self, ext, mime): # {{{
 			'''Add file extension to handle successfully.
