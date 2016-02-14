@@ -1225,9 +1225,6 @@ function() {\
 	class RPChttpd(Httpd): # {{{
 		'''Http server which serves websockets that implement RPC.
 		'''
-		class _RPCconnection(_Httpd_connection):
-			def __init__(self, socket, *a, **ka):
-				_Httpd_connection.__init__(self, socket, websocket = RPC, *a, **ka)
 		class _Broadcast:
 			def __init__(self, server, group = None):
 				self.server = server
@@ -1295,7 +1292,7 @@ function() {\
 						f = os.fdopen(fd, 'a')
 					network.set_log_output(f)
 					log('Start logging to %s, commandline = %s' % (n, repr(sys.argv)))
-			Httpd.__init__(self, port, target, http_connection = RPChttpd._RPCconnection, *a, **ka)
+			Httpd.__init__(self, port, target, websocket = RPC, *a, **ka)
 		# }}}
 	# }}}
 	def fgloop(*a, **ka): # {{{
