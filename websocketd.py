@@ -1,7 +1,7 @@
 # Python module for serving WebSockets and web pages.
 # vim: set fileencoding=utf-8 foldmethod=marker :
 
-# {{{ Copyright 2013-2014 Bas Wijnen <wijnen@debian.org>
+# {{{ Copyright 2013-2016 Bas Wijnen <wijnen@debian.org>
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -15,6 +15,57 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # }}}
+
+'''@mainpage
+This module can be used to create websockets servers and clients.  A websocket
+client is an HTTP connection which uses the headers to initiate a protocol
+change.  The server is a web server which serves web pages, and also responds
+to the protocol change headers that clients can use to set up a websocket.
+
+Note that the server is not optimized for high traffic.  If you need that, use
+something like Apache to handle all the other content and set up a virtual
+proxy to this server just for the websocket.
+
+In addition to implementing the protocol, this module contains a simple system
+to use websockets for making remote procedure calls (RPC).  This system allows
+the called procedures to be generators, so they can yield control to the main
+program and continue running when they need to.  This system can also be used
+locally by using call().
+'''
+
+'''@file
+This module can be used to create websockets servers and clients.  A websocket
+client is an HTTP connection which uses the headers to initiate a protocol
+change.  The server is a web server which serves web pages, and also responds
+to the protocol change headers that clients can use to set up a websocket.
+
+Note that the server is not optimized for high traffic.  If you need that, use
+something like Apache to handle all the other content and set up a virtual
+proxy to this server just for the websocket.
+
+In addition to implementing the protocol, this module contains a simple system
+to use websockets for making remote procedure calls (RPC).  This system allows
+the called procedures to be generators, so they can yield control to the main
+program and continue running when they need to.  This system can also be used
+locally by using call().
+'''
+
+'''@package websocketd Client WebSockets and webserver with WebSockets support
+This module can be used to create websockets servers and clients.  A websocket
+client is an HTTP connection which uses the headers to initiate a protocol
+change.  The server is a web server which serves web pages, and also responds
+to the protocol change headers that clients can use to set up a websocket.
+
+Note that the server is not optimized for high traffic.  If you need that, use
+something like Apache to handle all the other content and set up a virtual
+proxy to this server just for the websocket.
+
+In addition to implementing the protocol, this module contains a simple system
+to use websockets for making remote procedure calls (RPC).  This system allows
+the called procedures to be generators, so they can yield control to the main
+program and continue running when they need to.  This system can also be used
+locally by using call().
+'''
 
 # See the example server for how to use this module.
 
@@ -369,6 +420,8 @@ def call(reply, target, *a, **ka): # {{{
 	@param reply: Function to call with return value when it is ready, or
 		None.
 	@param target: Function or generator to call.
+	@param a: Arguments that are passed to target.
+	@param ka: Keyword arguments that are passed to target.
 	@return None.
 	'''
 	ret = target(*a, **ka)
@@ -1001,7 +1054,9 @@ function() {\
 			## Communication object for new websockets.
 			self.recv = recv
 			self._http_connection = http_connection
-			self._httpdirs = httpdirs
+			## Sequence of directories that that are searched to serve.
+			# This can be used to make a list of files that are available to the web server.
+			self.httpdirs = httpdirs
 			self._proxy = proxy
 			self._websocket = websocket
 			self._websocket_re = b'#WEBSOCKET(?:\+(.*?))?#'
@@ -1159,7 +1214,7 @@ function() {\
 			@return True to keep the connection open after this
 				request, False to close it.
 			'''
-			if self._httpdirs is None:
+			if self.httpdirs is None:
 				self.reply(connection, 501)
 				return
 			if path is None:
@@ -1180,18 +1235,18 @@ function() {\
 					log('not serving unknown extension %s' % ext)
 					self.reply(connection, 404)
 					return
-				for d in self._httpdirs:
+				for d in self.httpdirs:
 					filename = os.path.join(d, base + os.extsep + ext)
 					if os.path.exists(filename):
 						break
 				else:
-					log('file %s not found in %s' % (base + os.extsep + ext, ', '.join(self._httpdirs)))
+					log('file %s not found in %s' % (base + os.extsep + ext, ', '.join(self.httpdirs)))
 					self.reply(connection, 404)
 					return
 			else:
 				base = address.strip('/')
 				for ext in self.exts:
-					for d in self._httpdirs:
+					for d in self.httpdirs:
 						filename = os.path.join(d, base + os.extsep + ext)
 						if os.path.exists(filename):
 							break
@@ -1199,7 +1254,7 @@ function() {\
 						continue
 					break
 				else:
-					log('no file %s(with supported extension) found in %s' % (base, ', '.join(self._httpdirs)))
+					log('no file %s(with supported extension) found in %s' % (base, ', '.join(self.httpdirs)))
 					self.reply(connection, 404)
 					return
 			return self.exts[ext](connection, open(filename, 'rb').read())
@@ -1225,7 +1280,7 @@ function() {\
 	class RPChttpd(Httpd): # {{{
 		'''Http server which serves websockets that implement RPC.
 		'''
-		class _Broadcast:
+		class _Broadcast: # {{{
 			def __init__(self, server, group = None):
 				self.server = server
 				self.group = group
@@ -1239,6 +1294,7 @@ function() {\
 						if self.group is None or self.group in c.groups:
 							getattr(c, key).event(*a, **ka)
 				return impl
+		# }}}
 		def __init__(self, port, target, *a, **ka): # {{{
 			'''Start a new RPC HTTP server.
 			Extra arguments are passed to the Httpd constructor,
@@ -1290,7 +1346,9 @@ function() {\
 						fd, n = tempfile.mkstemp(prefix = os.path.basename(n) + '-' + time.strftime('%F %T%z') + '-', text = True)
 						sys.stderr.write('Opening file %s failed, using tempfile instead: %s\n' % (name, n))
 						f = os.fdopen(fd, 'a')
-					network.set_log_output(f)
+					stderr_fd = sys.stderr.fileno()
+					os.close(stderr_fd)
+					os.dup2(f.fileno(), stderr_fd)
 					log('Start logging to %s, commandline = %s' % (n, repr(sys.argv)))
 			Httpd.__init__(self, port, target, websocket = RPC, *a, **ka)
 		# }}}
