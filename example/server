@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # vim: set fileencoding=utf-8 foldmethod=marker :
 
-# {{{ Copyright 2013 Bas Wijnen <wijnen@debian.org>
+# {{{ Copyright 2013-2016 Bas Wijnen <wijnen@debian.org>
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -17,21 +17,36 @@
 # }}}
 
 import websocketd
+from gi.repository import GLib
 
-if False:
-	class Connection (websocketd.Connection):
-		def recv (self, frame):
-			print (frame)
-			self.send (frame)
-	s = websocketd.Httpd (8000, Connection)
-else:
-	class Class:
-		def __init__ (self, remote):
-			self.remote = remote
-		def a (self):
-			self.remote.quit ()
-			return 5
-	s = websocketd.RPChttpd (8000, Class, httpdirs = ('.',))
+class Rpc:
+	'An object of this class is instanced for every accepted WebSocket.'
+	def __init__(self, remote):
+		'remote is an object like this one, to call remote functions on.'
+		self.remote = remote
+	def test1(self, argument):
+		'This function is called from the client.'
+		print('test1 called with %s' % argument)
+		# Return a value.
+		return 'a value'
+	def test2(self):
+		'This function is called from the client and makes a call to the client.'
+		print('test2 called; sending quit in two seconds.')
+		GLib.timeout_add_seconds(2, self.remote.quit)
 
-websocketd.log ('running')
-websocketd.fgloop ()
+# Run the server on port 1234, serving html pages from the current directory.
+# The Rpc class is used for handling WebSockets.
+# Note that the server defaults to https connections; for this example,
+# encryptions is not used.  This is done by adding 'ths = False' as an
+# argument.
+# In normal use, encryption should almost always be used.  The network module
+# automatically generates an encryption key for you and puts it in
+# ~/.local/share/network/.  If you need a certificate for your encryption key,
+# see http://letsencrypt.org.
+server = websocketd.RPChttpd(1234, Rpc, httpdirs = ('.',), tls = False)
+
+# Tell the user that things are set up.
+websocketd.log('running')
+
+# Run the main loop.
+websocketd.fgloop()

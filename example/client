@@ -1,19 +1,28 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import websocketd
-import glib
 
-class Reader:
-	def __init__ (self, socket):
-		pass
-	def quit (self):
-		websocketd.endloop ()
+class Client:
+	'This class is similar to Rpc in the server.'
+	def __init__(self, remote):
+		'''remote and server are the same object.'''
+		# Call a function with an argument. 
+		ret = remote.test1('an argument')
+		print('test1 returned %s' % ret)
+	def quit(self):
+		'This function is called by the server.'
+		print('quit called; ending loop')
+		websocketd.endloop()
 
-c = websocketd.RPC (8000, Reader)
+# Connect to the server, using the Client class for the callback.
+# Exactly one object of the Client class is instanced.
+# Encryption is used by default, but the server doesn't use it, so it must be
+# explicitly disabled.
+server = websocketd.RPC(1234, Client, tls = False)
 
-# Use an idle handler, because endloop must not be called before fgloop.
-def later ():
-	print c.a ()
-glib.idle_add (later)
+# Using event() makes an asynchronous call; it continues immediately and does
+# not wait for a reply.
+server.test2.event()
 
-websocketd.fgloop ()
+# Start the main loop.
+websocketd.fgloop()

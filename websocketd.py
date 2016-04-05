@@ -1231,7 +1231,7 @@ function() {\
 			if '.' in address:
 				base, ext = address.rsplit('.', 1)
 				base = base.strip('/')
-				if ext not in self.exts:
+				if ext not in self.exts and None not in self.exts:
 					log('not serving unknown extension %s' % ext)
 					self.reply(connection, 404)
 					return
@@ -1247,14 +1247,14 @@ function() {\
 				base = address.strip('/')
 				for ext in self.exts:
 					for d in self.httpdirs:
-						filename = os.path.join(d, base + os.extsep + ext)
+						filename = os.path.join(d, base if ext is None else base + os.extsep + ext)
 						if os.path.exists(filename):
 							break
 					else:
 						continue
 					break
 				else:
-					log('no file %s(with supported extension) found in %s' % (base, ', '.join(self.httpdirs)))
+					log('no file %s (with supported extension) found in %s' % (base, ', '.join(self.httpdirs)))
 					self.reply(connection, 404)
 					return
 			return self.exts[ext](connection, open(filename, 'rb').read())
