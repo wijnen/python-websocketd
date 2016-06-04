@@ -1,11 +1,10 @@
+// vim: set foldmethod=marker :
 var _rpc_calls = new Object;
 var _rpc_id = 0;
 
 // Don't use JSON.stringify, because it doesn't properly handle NaN and Infinity.
-function _rpc_tojson(obj)
-{
-	if (typeof obj === 'object')
-	{
+function _rpc_tojson(obj) { // {{{
+	if (typeof obj === 'object') {
 		if (Boolean.prototype.isPrototypeOf(obj))
 			obj = Boolean(obj);
 		else if (Number.prototype.isPrototypeOf(obj))
@@ -19,12 +18,9 @@ function _rpc_tojson(obj)
 		return JSON.stringify(obj);
 	else if (typeof obj === 'function')
 		return undefined;
-	else if (typeof obj === 'object')
-	{
-		if (Array.prototype.isPrototypeOf(obj))
-		{
-			var r = obj.reduce(function(prev, current, index, obj)
-					{
+	else if (typeof obj === 'object') {
+		if (Array.prototype.isPrototypeOf(obj)) {
+			var r = obj.reduce(function(prev, current, index, obj) {
 						var c = _rpc_tojson(current);
 						if (c === undefined)
 							c = 'null';
@@ -34,8 +30,7 @@ function _rpc_tojson(obj)
 			return '[' + r.join(',') + ']';
 		}
 		var r = [];
-		for (var a in obj)
-		{
+		for (var a in obj) {
 			var c = _rpc_tojson(obj[a]);
 			if (c === undefined)
 				continue;
@@ -45,16 +40,15 @@ function _rpc_tojson(obj)
 	}
 	alert('unparsable object ' + String(obj) + ' passed to tojson');
 	return undefined;
-}
+} // }}}
 
-function Rpc(obj, onopen, onclose)
-{
-	var ret = #WEBSOCKET#;
-	ret.onopen = onopen;
-	ret.onclose = onclose;
-	ret.onmessage = function(frame) { _rpc_message(ret, obj, frame.data); };
-	ret.call = function(name, a, ka, reply)
-	{
+function Rpc(obj, onopen, onclose) { // {{{
+	var ws = #WEBSOCKET#;
+	var ret = { _websocket: ws };
+	ws.onopen = onopen;
+	ws.onclose = onclose;
+	ws.onmessage = function(frame) { _rpc_message(ws, obj, frame.data); };
+	ret.call = function(name, a, ka, reply) {
 		if (a === undefined)
 			a = [];
 		if (ka === undefined)
@@ -67,14 +61,12 @@ function Rpc(obj, onopen, onclose)
 		}
 		else
 			my_id = null;
-		this.send(_rpc_tojson(['call', [my_id, name, a, ka]]));
+		ws.send(_rpc_tojson(['call', [my_id, name, a, ka]]));
 	};
-	ret.event = function(name, a, ka)
-	{
+	ret.event = function(name, a, ka) {
 		this.call(name, a, ka, null);
 	};
-	ret.multicall = function(args, cb, rets, from)
-	{
+	ret.multicall = function(args, cb, rets, from) {
 		if (!rets)
 			rets = [];
 		if (!from)
@@ -92,21 +84,26 @@ function Rpc(obj, onopen, onclose)
 			ret.multicall(args, cb, rets, from + 1);
 		});
 	};
+	ret.proxy = new Proxy(ret, { get: function(target, name) {
+		return function() {
+			var args = [];
+			for (var i = 0; i < arguments.length; ++i)
+				args.push(arguments[i]);
+			ret.call(name, args, {}, null);
+		};
+	}});
 	return ret;
-}
+} // }}}
 
-function _rpc_message(websocket, obj, frame)
-{
+function _rpc_message(websocket, obj, frame) { // {{{
 	// Don't use JSON.parse, because it cannot handle NaN and Infinity.
 	// eval seems like a security risk, but it isn't because the data
 	// and this file come from the same server; if it is compromised,
 	// it will just send malicious data directly.
 	var data = eval('(' + frame + ')');
 	var cmd = data[0];
-	if (cmd == 'call')
-	{
-		try
-		{
+	if (cmd == 'call') {
+		try {
 			var id = data[1][0];
 			var ret;
 			if (data[1][1] in obj)
@@ -118,22 +115,18 @@ function _rpc_message(websocket, obj, frame)
 			if (id != null)
 				websocket.send(_rpc_tojson(['return', [id, ret]]));
 		}
-		catch (e)
-		{
+		catch (e) {
 			if (id != null)
 				websocket.send(_rpc_tojson(['error', e]));
 		}
 	}
-	else if (cmd == 'error')
-	{
+	else if (cmd == 'error') {
 		alert('error: ' + data[1]);
 	}
-	else if (cmd == 'return')
-	{
+	else if (cmd == 'return') {
 		_rpc_calls[data[1][0]] (data[1][1]);
 	}
-	else
-	{
+	else {
 		alert('unexpected command on websocket: ' + cmd);
 	}
-}
+} // }}}
