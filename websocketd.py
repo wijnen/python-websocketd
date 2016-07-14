@@ -295,11 +295,18 @@ Sec-WebSocket-Key: 0\r
 				self.opcode = opcode
 			elif opcode != 0:
 				# Protocol error.
-				log('invalid fragment')
-				self.socket.close()
+				# Exception: pongs are sometimes sent asynchronously.
+				# Theoretically the packet can be fragmented, but that should never happen; asynchronous pongs seem to be a protocol violation anyway...
+				if opcode == 10:
+					# Pong.
+					self._pong = True
+				else:
+					log('invalid fragment')
+					self.socket.close()
 				return None
 			if (header[0] & 0x80) != 0x80:
 				# fragment found; not last.
+				self._pong = True
 				self.websocket_fragments += data
 				if DEBUG > 2:
 					log('fragment recorded')
@@ -321,7 +328,6 @@ Sec-WebSocket-Key: 0\r
 				self._pong = True
 			elif opcode == 1:
 				# Text.
-				self._pong = True
 				data = data.decode('utf-8', 'replace')
 				if sync:
 					return data
@@ -331,7 +337,6 @@ Sec-WebSocket-Key: 0\r
 					log('warning: ignoring incoming websocket frame')
 			elif opcode == 2:
 				# Binary.
-				self._pong = True
 				if sync:
 					return data
 				if self.recv:
