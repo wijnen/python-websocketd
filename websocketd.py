@@ -321,6 +321,7 @@ Sec-WebSocket-Key: 0\r
 				self._pong = True
 			elif opcode == 1:
 				# Text.
+				self._pong = True
 				data = data.decode('utf-8', 'replace')
 				if sync:
 					return data
@@ -330,6 +331,7 @@ Sec-WebSocket-Key: 0\r
 					log('warning: ignoring incoming websocket frame')
 			elif opcode == 2:
 				# Binary.
+				self._pong = True
 				if sync:
 					return data
 				if self.recv:
@@ -376,7 +378,7 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 8:
 			self.socket.close()
 	# }}}
-	def ping(self, data = b''): # Send a ping; return False if no pong was seen for previous ping.  {{{
+	def ping(self, data = b''): # Send a ping; return False if no pong was seen for previous ping.  Other received packets also count as a pong. {{{
 		'''Send a ping, return if a pong was received since last ping.
 		@param data: Data to send with the ping.
 		@return True if a pong was received since last ping, False if not.
