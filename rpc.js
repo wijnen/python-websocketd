@@ -1,6 +1,8 @@
 // vim: set foldmethod=marker :
 var _rpc_calls = new Object;
 var _rpc_id = 0;
+var _rpc_queue = [];
+var _rpc_busy = 0;
 
 // Don't use JSON.stringify, because it doesn't properly handle NaN and Infinity.
 function _rpc_tojson(obj) { // {{{
@@ -43,11 +45,26 @@ function _rpc_tojson(obj) { // {{{
 } // }}}
 
 function Rpc(obj, onopen, onclose) { // {{{
+	var _rpc_process = function() {
+		var sem = _rpc_busy++;
+		if (sem) {
+			--_rpc_busy;
+			setTimeout(_rpc_process, 10);
+			return;
+		}
+		while (_rpc_queue.length > 0) {
+			_rpc_message(ws, obj, _rpc_queue.shift().data);
+		}
+		--_rpc_busy;
+	};
 	var ws = #WEBSOCKET#;
 	var ret = { _websocket: ws };
 	ws.onopen = onopen;
 	ws.onclose = onclose;
-	ws.onmessage = function(frame) { _rpc_message(ws, obj, frame.data); };
+	ws.onmessage = function(frame) {
+		_rpc_queue.push(frame);
+		setTimeout(_rpc_process, 0);
+	}
 	ret.call = function(name, a, ka, reply) {
 		if (a === undefined)
 			a = [];
