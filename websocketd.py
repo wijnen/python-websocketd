@@ -692,7 +692,11 @@ class _Httpd_connection:	# {{{
 			if not l.strip():
 				self._handle_headers()
 				return
-			key, value = l.split(':', 1)
+			try:
+				key, value = l.split(':', 1)
+			except ValueError:
+				log('Invalid header line: %s' % l)
+				return
 			self.headers[key.lower()] = value.strip()
 			return
 		else:
