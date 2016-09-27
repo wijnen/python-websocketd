@@ -782,7 +782,10 @@ class _Httpd_connection:	# {{{
 					if DEBUG > 0:
 						traceback.print_exc()
 					log('exception: %s\n' % repr(sys.exc_info()[1]))
-					self.server.reply(self, 500)
+					try:
+						self.server.reply(self, 500)
+					except:
+						pass
 					self.socket.close()
 			return
 		# Websocket.
