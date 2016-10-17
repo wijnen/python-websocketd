@@ -277,6 +277,8 @@ Sec-WebSocket-Key: 0\r
 				# Not enough data for packet.
 				if DEBUG > 2:
 					log('no packet yet(%d < %d)' % (len(self.websocket_buffer), pos + (4 if have_mask else 0) + l))
+				# Long packets should not cause ping timeouts.
+				self._pong = True
 				return None
 			header = self.websocket_buffer[:pos]
 			opcode = header[0] & 0xf
