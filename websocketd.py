@@ -482,7 +482,7 @@ class RPC(Websocket): # {{{
 				cls._index += 1
 		return cls._index
 	# }}}
-	def __init__(self, port, recv = None, *a, **ka): # {{{
+	def __init__(self, port, recv = None, error = None, *a, **ka): # {{{
 		'''Create a new RPC object.  Extra parameters are passed to the
 		Websocket constructor, which passes its extra parameters to the
 		network.Socket constructor.
@@ -499,6 +499,7 @@ class RPC(Websocket): # {{{
 		self.groups = set()
 		Websocket.__init__(self, port, recv = RPC._recv, *a, **ka)
 		self._target = recv(self) if recv is not None else None
+		self._error = error
 	# }}}
 	def __call__(self): # {{{
 		'''Internal use only.  Do not call.  Activate the websocket; send initial frames.
@@ -599,7 +600,10 @@ class RPC(Websocket): # {{{
 		elif data[0] == 'error':
 			if DEBUG > 0:
 				traceback.print_stack()
-			raise ValueError(data[1])
+			if self._error is not None:
+				self._error(data[1])
+			else:
+				raise ValueError(data[1])
 		elif data[0] == 'event':
 			# Do nothing with this; the packet is already logged if DEBUG > 1.
 			return
@@ -607,21 +611,18 @@ class RPC(Websocket): # {{{
 			assert data[1][0] in RPC._calls
 			RPC._calls[data[1][0]] (data[1][1])
 			return
-		try:
-			if data[0] == 'call':
+		elif data[0] == 'call':
+			try:
 				if self._delayed_calls is not None:
 					self._delayed_calls.append(data[1])
 				else:
 					self._call(data[1][0], data[1][1], data[1][2], data[1][3])
-			else:
-				raise ValueError('invalid RPC command %s' % data[0])
-		except AssertionError as e:
-			self._send('error', traceback.format_exc())
-		except:
-			traceback.print_exc()
-			log('error: %s' % str(sys.exc_info()[1]))
-			self._send('error', traceback.format_exc())
-			#raise
+			except:
+				traceback.print_exc()
+				log('error: %s' % str(sys.exc_info()[1]))
+				self._send('error', traceback.format_exc())
+		else:
+			self._send('error', 'invalid RPC command')
 	# }}}
 	def _call(self, reply, member, a, ka): # {{{
 		'''Make local function call at remote request.
@@ -664,7 +665,7 @@ class _Httpd_connection:	# {{{
 	supports GET and POST, and of course websockets.  Don't
 	construct these objects directly.
 	'''
-	def __init__(self, server, socket, websocket = Websocket, proxy = ()): # {{{
+	def __init__(self, server, socket, websocket = Websocket, proxy = (), error = None): # {{{
 		'''Constructor for internal use.  This should not be
 			called directly.
 		@param server: Server object for which this connection
@@ -681,6 +682,7 @@ class _Httpd_connection:	# {{{
 		self.socket = socket
 		self.websocket = websocket
 		self.proxy = (proxy,) if isinstance(proxy, str) else proxy
+		self.error = error
 		self.headers = {}
 		self.address = None
 		self.socket.disconnect_cb(lambda socket, data: b'')	# Ignore disconnect until it is a WebSocket.
@@ -800,7 +802,7 @@ class _Httpd_connection:	# {{{
 		newkey = base64.b64encode(hashlib.sha1(self.headers['sec-websocket-key'].strip().encode('utf-8') + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()).decode('utf-8')
 		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
 		self.server.reply(self, 101, None, None, headers)
-		self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
+		self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, error = self.error, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
 	# }}}
 	def _parse_headers(self, message): # {{{
 		lines = []
@@ -1054,7 +1056,7 @@ class Httpd: # {{{
 	This object implements an HTTP server.  It supports GET and
 	POST, and of course websockets.
 	'''
-	def __init__(self, port, recv = None, httpdirs = None, server = None, proxy = (), http_connection = _Httpd_connection, websocket = Websocket, *a, **ka): # {{{
+	def __init__(self, port, recv = None, httpdirs = None, server = None, proxy = (), http_connection = _Httpd_connection, websocket = Websocket, error = None, *a, **ka): # {{{
 		'''Create a webserver.
 		Additional arguments are passed to the network.Server.
 		@param port: Port to listen on.  Same format as in
@@ -1077,6 +1079,7 @@ class Httpd: # {{{
 		self._proxy = proxy
 		self._websocket = websocket
 		self._websocket_re = b'#WEBSOCKET(?:\+(.*?))?#'
+		self._error = error if error is not None else lambda msg: print(msg)
 		## Extensions which are handled from httpdirs.
 		# More items can be added by the user program.
 		self.exts = {
@@ -1099,7 +1102,7 @@ class Httpd: # {{{
 		@param socket: Socket to add.
 		@return New connection object.
 		'''
-		return self._http_connection(self, socket, proxy = self._proxy, websocket = self._websocket)
+		return self._http_connection(self, socket, proxy = self._proxy, websocket = self._websocket, error = self._error)
 	# }}}
 	def handle_ext(self, ext, mime): # {{{
 		'''Add file extension to handle successfully.
