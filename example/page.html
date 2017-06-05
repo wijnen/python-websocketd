@@ -6,7 +6,10 @@
 var ws;
 function init ()
 {
-	ws = #WEBSOCKET#;
+	var proto = document.location.protocol;
+        var wproto = proto[proto.length - 2] == 's' ? 'wss:' : 'ws:';
+        var target = wproto + document.location.host + document.location.pathname + 'websocket/' + document.location.search;
+	ws = new WebSocket(target);
 	ws.onmessage = message;
 }
 

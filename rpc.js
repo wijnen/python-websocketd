@@ -57,7 +57,10 @@ function Rpc(obj, onopen, onclose) { // {{{
 		}
 		--_rpc_busy;
 	};
-	var ws = #WEBSOCKET#;
+	var proto = document.location.protocol;
+	var wproto = proto[proto.length - 2] == 's' ? 'wss:' : 'ws:';
+	var target = wproto + document.location.host + document.location.pathname + 'websocket/' + document.location.search;
+	var ws = new WebSocket(target);
 	var ret = { _websocket: ws };
 	ws.onopen = onopen;
 	ws.onclose = onclose;
@@ -133,6 +136,7 @@ function _rpc_message(websocket, obj, frame) { // {{{
 				websocket.send(_rpc_tojson(['return', [id, ret]]));
 		}
 		catch (e) {
+			console.error('call returns error', e);
 			if (id != null)
 				websocket.send(_rpc_tojson(['error', e]));
 		}

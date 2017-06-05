@@ -1014,42 +1014,6 @@ class _Httpd_connection:	# {{{
 			pos = len(data) - 2
 		return (ret, data[pos:])
 	# }}}
-	def _reply_websocket(self, message, content_type):	# {{{
-		m = b''
-		e = 0
-		url = urlparse(self.headers.get('referer', self.url))
-		target = (self.headers.get('x-forwarded-host', self.headers.get('host')) + url.path)
-		if not target.endswith('/'):
-			target = target + '/'
-		aftertarget = ''
-		if url.fragment:
-			aftertarget += '#' + url.fragment
-		if url.query:
-			aftertarget += '?' + url.query
-		for match in re.finditer(self.server._websocket_re, message):
-			g = match.groups()
-			if len(g) > 0 and g[0]:
-				wstarget = ''
-				extra = b' + ' + g[0]
-			else:
-				# Make sure websocket uses a different address, to allow Apache to detect the protocol.
-				wstarget = 'websocket/'
-				extra = b''
-			m += message[e:match.start()] + ('''\
-function() {\
-	var p = document.location.protocol;\
-	var wp = p[p.length - 2] == 's' ? 'wss:' : 'ws:';\
-	var target = wp + '%s'\
-''' % (target + wstarget + aftertarget)).encode('utf-8') + extra + b''';\
-	if (window.hasOwnProperty('MozWebSocket'))\
-		return new MozWebSocket(target);\
-	else\
-		return new WebSocket(target);\
-}()'''
-			e = match.end()
-		m += message[e:]
-		self.server.reply(self, 200, m, content_type)
-	# }}}
 # }}}
 class Httpd: # {{{
 	'''HTTP server.
@@ -1078,7 +1042,6 @@ class Httpd: # {{{
 		self.httpdirs = httpdirs
 		self._proxy = proxy
 		self._websocket = websocket
-		self._websocket_re = b'#WEBSOCKET(?:\+(.*?))?#'
 		self._error = error if error is not None else lambda msg: print(msg)
 		## Extensions which are handled from httpdirs.
 		# More items can be added by the user program.
@@ -1161,7 +1124,7 @@ class Httpd: # {{{
 		@param message: Data from the requested file.
 		@return None.
 		'''
-		connection._reply_websocket(message, 'text/html;charset=utf8')
+		self.reply(connection, 200, message, 'text/html;charset=utf8')
 	# }}}
 	def reply_js(self, connection, message):	# {{{
 		'''Reply to a request for a javascript document.
@@ -1169,7 +1132,7 @@ class Httpd: # {{{
 		@param message: Data from the requested file.
 		@return None.
 		'''
-		connection._reply_websocket(message, 'application/javascript;charset=utf8')
+		self.reply(connection, 200, message, 'application/javascript;charset=utf8')
 	# }}}
 	def reply_css(self, connection, message):	# {{{
 		'''Reply to a request for a css document.
