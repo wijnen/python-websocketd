@@ -59,7 +59,8 @@ function Rpc(obj, onopen, onclose) { // {{{
 	};
 	var proto = document.location.protocol;
 	var wproto = proto[proto.length - 2] == 's' ? 'wss:' : 'ws:';
-	var target = wproto + document.location.host + document.location.pathname + 'websocket/' + document.location.search;
+	var slash = document.location.pathname[document.location.pathname.length - 1] == '/' ? '' : '/';
+	var target = wproto + document.location.host + document.location.pathname + slash + 'websocket/' + document.location.search;
 	var ws = new WebSocket(target);
 	var ret = { _websocket: ws };
 	ws.onopen = onopen;
