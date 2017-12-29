@@ -918,9 +918,9 @@ class _Httpd_connection:	# {{{
 					if 'filename' in args:
 						fd, self.post_file = tempfile.mkstemp()
 						self.post_handle = os.fdopen(fd, 'wb')
-						self.post[1][self.post_name] = (self.post_file, args['filename'], headers, post_type)
-						if self.post_name in self.post:
-							os.remove(self.post[self.post_name][2])
+						if self.post_name not in self.post[1]:
+							self.post[1][self.post_name] = []
+						self.post[1][self.post_name].append((self.post_file, args['filename'], headers, post_type))
 					else:
 						self.post_handle = None
 				else:
@@ -965,7 +965,8 @@ class _Httpd_connection:	# {{{
 		if not self.server.post(self):
 			self.socket.close()
 		for f in self.post[1]:
-			os.remove(self.post[1][f][0])
+			for g in f:
+				os.remove(self.post[1][f][g][0])
 		del self.post
 	# }}}
 	def _base64_decoder(self, data, final):	# {{{
