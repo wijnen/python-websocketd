@@ -965,8 +965,8 @@ class _Httpd_connection:	# {{{
 		if not self.server.post(self):
 			self.socket.close()
 		for f in self.post[1]:
-			for g in f:
-				os.remove(self.post[1][f][g][0])
+			for g in self.post[1][f]:
+				os.remove(g[0])
 		del self.post
 	# }}}
 	def _base64_decoder(self, data, final):	# {{{
