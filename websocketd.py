@@ -1274,7 +1274,7 @@ class RPChttpd(Httpd): # {{{
 			if key.startswith('_'):
 				raise AttributeError('invalid member name')
 			def impl(*a, **ka):
-				for c in self.server.websockets:
+				for c in self.server.websockets.copy():
 					if self.group is None or self.group in c.groups:
 						getattr(c, key).event(*a, **ka)
 			return impl
