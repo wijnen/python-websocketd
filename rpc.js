@@ -4,6 +4,32 @@ var _rpc_id = 0;
 var _rpc_queue = [];
 var _rpc_busy = 0;
 
+// Avoid console errors in browsers that lack a console. {{{
+// If an item with the id "debugging_console" is defined, use it to place all the console messages in.
+var console = (window.console = window.console || {});
+(function() {
+	var stub = function(name, args) {
+		var e = document.getElementById('debugging_console');
+		if (!e)
+			return;
+		var p = document.createElement('p');
+		e.appendChild(p);
+		var sep = this.name + ': ';
+		for (var a = 0; a < args.length; ++a) {
+			var t = document.createTextNode(sep + args[a]);
+			p.appendChild(t);
+			sep = ', ';
+		}
+	};
+	var methods = ['assert', 'clear', 'count', 'debug', 'dir', 'dirxml', 'error', 'exception', 'group', 'groupCollapsed', 'groupEnd', 'info', 'log', 'markTimeline', 'profile', 'profileEnd', 'table', 'time', 'timeEnd', 'timeStamp', 'trace', 'warn'];
+
+	for (i = 0; i < methods.length; ++i) {
+		// Only stub undefined methods.
+		if (!console[methods[i]])
+			console[methods[i]] = function() { stub(methods[i], arguments); };
+	}
+}()); // }}}
+
 // Don't use JSON.stringify, because it doesn't properly handle NaN and Infinity.
 function _rpc_tojson(obj) { // {{{
 	if (typeof obj === 'object') {
@@ -68,7 +94,7 @@ function Rpc(obj, onopen, onclose) { // {{{
 	ws.onmessage = function(frame) {
 		_rpc_queue.push(frame);
 		setTimeout(_rpc_process, 0);
-	}
+	};
 	ret.call = function(name, a, ka, reply) {
 		if (a === undefined)
 			a = [];
