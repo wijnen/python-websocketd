@@ -85,7 +85,7 @@ import collections
 import tempfile
 import time
 import traceback
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 from http.client import responses as httpcodes
 # }}}
 
@@ -1046,11 +1046,24 @@ class Httpd: # {{{
 		self._error = error if error is not None else lambda msg: print(msg)
 		## Extensions which are handled from httpdirs.
 		# More items can be added by the user program.
-		self.exts = {
-				'html': self.reply_html,
-				'js': self.reply_js,
-				'css': self.reply_css
-		}
+		self.exts = {}
+		# Automatically add all extensions for which a mime type exists.
+		exts = {}
+		with open('/etc/mime.types') as f:
+			for ln in f:
+				items = ln.split()
+				for ext in items[1:]:
+					if ext not in exts:
+						exts[ext] = items[0]
+					else:
+						# Multiple registration: don't choose one.
+						exts[ext] = False
+		for ext in exts:
+			if exts[ext] is not False:
+				if exts[ext].startswith('text/') or exts[ext] == 'application/javascript':
+					self.handle_ext(ext, exts[ext] + ';charset=utf-8')
+				else:
+					self.handle_ext(ext, exts[ext])
 		## Currently connected websocket connections.
 		self.websockets = set()
 		if server is None:
@@ -1118,31 +1131,7 @@ class Httpd: # {{{
 		return True
 	# }}}
 	# }}}
-	# The following functions can be called by the overloaded page function. {{{
-	def reply_html(self, connection, message):	# {{{
-		'''Reply to a request for an html document.
-		@param connection: Requesting connection.
-		@param message: Data from the requested file.
-		@return None.
-		'''
-		self.reply(connection, 200, message, 'text/html;charset=utf8')
-	# }}}
-	def reply_js(self, connection, message):	# {{{
-		'''Reply to a request for a javascript document.
-		@param connection: Requesting connection.
-		@param message: Data from the requested file.
-		@return None.
-		'''
-		self.reply(connection, 200, message, 'application/javascript;charset=utf8')
-	# }}}
-	def reply_css(self, connection, message):	# {{{
-		'''Reply to a request for a css document.
-		@param connection: Requesting connection.
-		@param message: Data from the requested file.
-		@return None.
-		'''
-		self.reply(connection, 200, message, 'text/css;charset=utf8')
-	# }}}
+	# The following function can be called by the overloaded page function.
 	def reply(self, connection, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
 		'''Reply to a request for a document.
 		There are three ways to call this function:
@@ -1182,7 +1171,6 @@ class Httpd: # {{{
 			message = b''
 		connection.socket.send((''.join(['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n').encode('utf-8') + message)
 	# }}}
-	# }}}
 	# If httpdirs is not given, or special handling is desired, this can be overloaded.
 	def page(self, connection, path = None):	# A non-WebSocket page was requested.  Use connection.address, connection.method, connection.query, connection.headers and connection.body (which should be empty) to find out more.  {{{
 		'''Serve a non-websocket page.
@@ -1206,13 +1194,13 @@ class Httpd: # {{{
 		if path == '/':
 			address = 'index'
 		else:
-			address = '/' + path + '/'
+			address = '/' + unquote(path) + '/'
 			while '/../' in address:
 				# Don't handle this; just ignore it.
 				pos = address.index('/../')
 				address = address[:pos] + address[pos + 3:]
 			address = address[1:-1]
-		if '.' in address:
+		if '.' in address.rsplit('/', 1)[-1]:
 			base, ext = address.rsplit('.', 1)
 			base = base.strip('/')
 			if ext not in self.exts and None not in self.exts:
