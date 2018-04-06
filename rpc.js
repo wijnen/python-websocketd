@@ -84,7 +84,7 @@ function Rpc(obj, onopen, onclose) { // {{{
 		--_rpc_busy;
 	};
 	var proto = document.location.protocol;
-	var wproto = proto[proto.length - 2] == 's' ? 'wss:' : 'ws:';
+	var wproto = proto[proto.length - 2] == 's' ? 'wss://' : 'ws://';
 	var slash = document.location.pathname[document.location.pathname.length - 1] == '/' ? '' : '/';
 	var target = wproto + document.location.host + document.location.pathname + slash + 'websocket/' + document.location.search;
 	var ws = new WebSocket(target);
@@ -131,14 +131,16 @@ function Rpc(obj, onopen, onclose) { // {{{
 			ret.multicall(args, cb, rets, from + 1);
 		});
 	};
-	ret.proxy = new Proxy(ret, { get: function(target, name) {
-		return function() {
-			var args = [];
-			for (var i = 0; i < arguments.length; ++i)
-				args.push(arguments[i]);
-			ret.call(name, args, {}, null);
-		};
-	}});
+	if (window.Proxy) {
+		ret.proxy = new Proxy(ret, { get: function(target, name) {
+			return function() {
+				var args = [];
+				for (var i = 0; i < arguments.length; ++i)
+					args.push(arguments[i]);
+				ret.call(name, args, {}, null);
+			};
+		}});
+	}
 	return ret;
 } // }}}
 
