@@ -731,6 +731,7 @@ class _Httpd_connection:	# {{{
 		self.data['url'] = self.url
 		self.data['address'] = self.address
 		self.data['query'] = self.query
+		self.data['headers'] = self.headers
 		msg = self.server.auth_message(self, is_websocket) if callable(self.server.auth_message) else self.server.auth_message
 		if msg:
 			if 'authorization' not in self.headers:
