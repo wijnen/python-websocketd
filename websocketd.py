@@ -963,7 +963,7 @@ class _Httpd_connection:	# {{{
 					self.post[0][self.post_name][0] += decoded
 					if self.post_state != 1:
 						if self.post[0][self.post_name][2][0] == 'text/plain':
-							self.post[0][self.post_name][0] = self.post[0][self.post_name][0].decode(self.post[0][self.post_name][2][1].get('charset', 'us-ascii'))
+							self.post[0][self.post_name][0] = self.post[0][self.post_name][0].decode(self.post[0][self.post_name][2][1].get('charset', 'utf-8'), 'replace')
 				if self.post_state is None:
 					self._finish_post()
 					return
@@ -1244,13 +1244,11 @@ class Httpd: # {{{
 		This function responds with an error by default.  It
 		must be overridden to handle POST requests.
 
-		@param connection: Same as for page(), plus
-			connection.post, which is a dict of
-			name:(headers, sent_filename, local_filename).
-			When done, the local files are unlinked; remove
-			the items from the dict to prevent this.
-		@return True to keep connection open after this
-			request, False to close it.
+		@param connection: Same as for page(), plus connection.post, which is a 2-tuple.
+			The first element is a dict of name:['value', ...] for fields without a file.
+			The second element is a dict of name:[(local_filename, remote_filename), ...] for fields with a file.
+			When done, the local files are unlinked; remove the items from the dict to prevent this.
+		@return True to keep connection open after this request, False to close it.
 		'''
 		log('Warning: ignoring POST request.')
 		self.reply(connection, 501)
