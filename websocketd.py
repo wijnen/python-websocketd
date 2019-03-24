@@ -154,7 +154,14 @@ class Websocket: # {{{
 		if socket is None:
 			socket = network.Socket(port, *a, **ka)
 		self.socket = socket
-		self.remote = [real_remote or socket.remote[0], socket.remote[1]]
+		# Use real_remote if it was provided.
+		if real_remote:
+			if isinstance(socket.remote, (tuple, list)):
+				self.remote = [real_remote, socket.remote[1]]
+			else:
+				self.remote = [real_remote, None]
+		else:
+			self.remote = socket.remote
 		hdrdata = b''
 		if url is not None:
 			elist = []
