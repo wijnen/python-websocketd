@@ -95,6 +95,9 @@ function Rpc(obj, onopen, onclose) { // {{{
 		_rpc_queue.push(frame);
 		setTimeout(_rpc_process, 0);
 	};
+	ret.close = function() {
+		ws.close();
+	}
 	ret.call = function(name, a, ka, reply) {
 		if (a === undefined)
 			a = [];
