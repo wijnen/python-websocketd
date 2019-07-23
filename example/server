@@ -16,37 +16,50 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # }}}
 
+import time
 import websocketd
-from gi.repository import GLib
 
 class Rpc:
 	'An object of this class is instanced for every accepted WebSocket.'
 	def __init__(self, remote):
 		'remote is an object like this one, to call remote functions on.'
 		self.remote = remote
-	def test1(self, argument):
+		# Call some functions.
+		# This waits for the client to complete the function.
+		self.remote.foo()
+		# This sends the event, but does not wait for completion. The
+		# return value is lost.
+		self.remote.foo.event()
+		# Arguments can also be passed.
+		self.remote.bar(25)
+	def baz(self, arg1, arg2 = 42):
 		'This function is called from the client.'
-		print('test1 called with %s' % argument)
+		print('baz called with {}, {}'.format(arg1, arg2))
 		# Return a value.
 		return 'a value'
-	def test2(self):
+	def quit(self):
 		'This function is called from the client and makes a call to the client.'
-		print('test2 called; sending quit in two seconds.')
-		GLib.timeout_add_seconds(2, self.remote.quit)
+		print('quit called, stopping main loop.')
+		websocketd.endloop()
 
-# Run the server on port 1234, serving html pages from the current directory.
+# Run the server on port 1234, serving html pages from the directory named html.
 # The Rpc class is used for handling WebSockets.
 # Note that the server defaults to https connections; for this example,
-# encryptions is not used.  This is done by adding 'ths = False' as an
+# encryptions is not used.  This is done by adding 'tls = False' as an
 # argument.
 # In normal use, encryption should almost always be used.  The network module
 # automatically generates an encryption key for you and puts it in
 # ~/.local/share/network/.  If you need a certificate for your encryption key,
 # see http://letsencrypt.org.
-server = websocketd.RPChttpd(1234, Rpc, httpdirs = ('.',), tls = False)
+# Alternatively, if you use Apache as a virtual proxy, it can do all the
+# encryption for you.
+server = websocketd.RPChttpd(1234, Rpc, httpdirs = ('html',), tls = False)
 
 # Tell the user that things are set up.
 websocketd.log('running')
 
 # Run the main loop.
 websocketd.fgloop()
+
+# This is reached when the mail loop is stopped.
+print('End of program.')
