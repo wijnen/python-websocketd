@@ -120,3 +120,12 @@ Object.defineProperty(Object.prototype, 'AddEvent', {
 		this.addEventListener(name, impl, false);
 		return this;
 	}});
+
+Object.defineProperty(Object.prototype, 'RemoveEvent', {
+	enumerable: false,
+	configurable: true,
+	writable: true,
+	value: function(name, impl) {
+		this.removeEventListener(name, impl, false);
+		return this;
+	}});

@@ -505,8 +505,8 @@ class RPC(Websocket): # {{{
 		## Groups are used to do selective broadcast() events.
 		self.groups = set()
 		Websocket.__init__(self, port, recv = RPC._recv, *a, **ka)
-		self._target = recv(self) if recv is not None else None
 		self._error = error
+		self._target = recv(self) if recv is not None else None
 	# }}}
 	def __call__(self): # {{{
 		'''Internal use only.  Do not call.  Activate the websocket; send initial frames.
