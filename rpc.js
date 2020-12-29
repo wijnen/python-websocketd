@@ -71,18 +71,6 @@ function _rpc_tojson(obj) { // {{{
 } // }}}
 
 function Rpc(obj, onopen, onclose) { // {{{
-	var _rpc_process = function() {
-		var sem = _rpc_busy++;
-		if (sem) {
-			--_rpc_busy;
-			setTimeout(_rpc_process, 10);
-			return;
-		}
-		while (_rpc_queue.length > 0) {
-			_rpc_message(ws, obj, _rpc_queue.shift().data);
-		}
-		--_rpc_busy;
-	};
 	var proto = document.location.protocol;
 	var wproto = proto[proto.length - 2] == 's' ? 'wss://' : 'ws://';
 	var slash = document.location.pathname[document.location.pathname.length - 1] == '/' ? '' : '/';
@@ -91,6 +79,25 @@ function Rpc(obj, onopen, onclose) { // {{{
 	var ret = { _websocket: ws };
 	ws.onopen = onopen;
 	ws.onclose = onclose;
+	ret.lock = function() {
+		return _rpc_busy++ == 0;
+	};
+	ret.unlock = function() {
+		if (!--_rpc_busy)
+			return _rpc_process();
+	};
+	var _rpc_process = function() {
+		if (_rpc_queue.length == 0) {
+			return;
+		}
+		if (!ret.lock()) {
+			return ret.unlock();
+		}
+		if (_rpc_queue.length > 0)
+			_rpc_message(ws, obj, _rpc_queue.shift().data);
+		ret.unlock();
+		setTimeout(_rpc_process, 0);
+	};
 	ws.onmessage = function(frame) {
 		_rpc_queue.push(frame);
 		setTimeout(_rpc_process, 0);
