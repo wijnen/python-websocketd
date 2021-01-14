@@ -1056,16 +1056,20 @@ class Httpd: # {{{
 		# More items can be added by the user program.
 		self.exts = {}
 		# Automatically add all extensions for which a mime type exists.
-		exts = {}
-		with open('/etc/mime.types') as f:
-			for ln in f:
-				items = ln.split()
-				for ext in items[1:]:
-					if ext not in exts:
-						exts[ext] = items[0]
-					else:
-						# Multiple registration: don't choose one.
-						exts[ext] = False
+		try:
+			exts = {}
+			with open('/etc/mime.types') as f:
+				for ln in f:
+					items = ln.split()
+					for ext in items[1:]:
+						if ext not in exts:
+							exts[ext] = items[0]
+						else:
+							# Multiple registration: don't choose one.
+							exts[ext] = False
+		except FileNotFoundError:
+			# This is probably a Windows system; use some defaults.
+			exts = { 'html': 'text/html', 'css': 'text/css', 'js': 'text/javascript', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'bmp': 'image/bmp', 'gif': 'image/gif', 'pdf': 'application/pdf', 'svg': 'image/svg+xml', 'txt': 'text/plain'}
 		for ext in exts:
 			if exts[ext] is not False:
 				if exts[ext].startswith('text/') or exts[ext] == 'application/javascript':
