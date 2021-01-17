@@ -726,8 +726,7 @@ class _Httpd_connection:	# {{{
 				self.query = parse_qs(self.address.query)
 			except:
 				traceback.print_exc()
-				self.server.reply(self, 400)
-				self.socket.close()
+				self.server.reply(self, 400, close = True)
 			return
 	# }}}
 	def _handle_headers(self):	# {{{
@@ -742,27 +741,21 @@ class _Httpd_connection:	# {{{
 		msg = self.server.auth_message(self, is_websocket) if callable(self.server.auth_message) else self.server.auth_message
 		if msg:
 			if 'authorization' not in self.headers:
-				self.server.reply(self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace('\n', ' ').replace('\r', ' ').replace('"', "'")})
-				if 'content-length' not in self.headers or self.headers['content-length'].strip() != '0':
-					self.socket.close()
+				self.server.reply(self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace('\n', ' ').replace('\r', ' ').replace('"', "'")}, close = True)
 				return
 			else:
 				auth = self.headers['authorization'].split(None, 1)
 				if auth[0].lower() != 'basic':
-					self.server.reply(self, 400)
-					self.socket.close()
+					self.server.reply(self, 400, close = True)
 					return
 				pwdata = base64.b64decode(auth[1].encode('utf-8')).decode('utf-8', 'replace').split(':', 1)
 				if len(pwdata) != 2:
-					self.server.reply(self, 400)
-					self.socket.close()
+					self.server.reply(self, 400, close = True)
 					return
 				self.data['user'] = pwdata[0]
 				self.data['password'] = pwdata[1]
 				if not self.server.authenticate(self):
-					self.server.reply(self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace('\n', ' ').replace('\r', ' ').replace('"', "'")})
-					if 'content-length' not in self.headers or self.headers['content-length'].strip() != '0':
-						self.socket.close()
+					self.server.reply(self, 401, headers = {'WWW-Authenticate': 'Basic realm="%s"' % msg.replace('\n', ' ').replace('\r', ' ').replace('"', "'")}, close = True)
 					return
 		if not is_websocket:
 			if DEBUG > 4:
@@ -771,14 +764,12 @@ class _Httpd_connection:	# {{{
 			if self.method.upper() == 'POST':
 				if 'content-type' not in self.headers or self.headers['content-type'].lower().split(';')[0].strip() != 'multipart/form-data':
 					log('Invalid Content-Type for POST; must be multipart/form-data (not %s)\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
-					self.server.reply(self, 500)
-					self.socket.close()
+					self.server.reply(self, 500, close = True)
 					return
 				args = self._parse_args(self.headers['content-type'])[1]
 				if 'boundary' not in args:
 					log('Invalid Content-Type for POST: missing boundary in %s\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
-					self.server.reply(self, 500)
-					self.socket.close()
+					self.server.reply(self, 500, close = True)
 					return
 				self.boundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'\r\n'
 				self.endboundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'--\r\n'
@@ -795,21 +786,19 @@ class _Httpd_connection:	# {{{
 						traceback.print_exc()
 					log('exception: %s\n' % repr(sys.exc_info()[1]))
 					try:
-						self.server.reply(self, 500)
+						self.server.reply(self, 500, close = True)
 					except:
-						pass
-					self.socket.close()
+						self.socket.close()
 			return
 		# Websocket.
 		if self.method.upper() != 'GET' or 'sec-websocket-key' not in self.headers:
 			if DEBUG > 2:
 				log('Debug: invalid websocket')
-			self.server.reply(self, 400)
-			self.socket.close()
+			self.server.reply(self, 400, close = True)
 			return
 		newkey = base64.b64encode(hashlib.sha1(self.headers['sec-websocket-key'].strip().encode('utf-8') + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()).decode('utf-8')
 		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
-		self.server.reply(self, 101, None, None, headers)
+		self.server.reply(self, 101, None, None, headers, close = False)
 		self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, error = self.error, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
 	# }}}
 	def _parse_headers(self, message): # {{{
@@ -1144,7 +1133,7 @@ class Httpd: # {{{
 	# }}}
 	# }}}
 	# The following function can be called by the overloaded page function.
-	def reply(self, connection, code, message = None, content_type = None, headers = None):	# Send HTTP status code and headers, and optionally a message.  {{{
+	def reply(self, connection, code, message = None, content_type = None, headers = None, close = False):	# Send HTTP status code and headers, and optionally a message.  {{{
 		'''Reply to a request for a document.
 		There are three ways to call this function:
 		* With a message and content_type.  This will serve the
@@ -1164,6 +1153,8 @@ class Httpd: # {{{
 		@param headers: Headers to send in addition to
 			Content-Type and Content-Length, or None for no
 			extra headers.
+		@param close: True if the connection should be closed after
+			this reply.
 		@return None.
 		'''
 		assert code in httpcodes
@@ -1173,8 +1164,10 @@ class Httpd: # {{{
 			headers = {}
 		if message is None and code != 101:
 			assert content_type is None
-			content_type = 'text/html;charset=utf-8'
+			content_type = 'text/html; charset=utf-8'
 			message = ('<!DOCTYPE html><html><head><title>%d: %s</title></head><body><h1>%d: %s</h1></body></html>' % (code, httpcodes[code], code, httpcodes[code])).encode('utf-8')
+		if close and 'Connection' not in headers:
+			headers['Connection'] = 'close'
 		if content_type is not None:
 			headers['Content-Type'] = content_type
 			headers['Content-Length'] = '%d' % len(message)
@@ -1182,6 +1175,8 @@ class Httpd: # {{{
 			assert code == 101
 			message = b''
 		connection.socket.send((''.join(['%s: %s\r\n' % (x, headers[x]) for x in headers]) + '\r\n').encode('utf-8') + message)
+		if close:
+			connection.socket.close()
 	# }}}
 	# If httpdirs is not given, or special handling is desired, this can be overloaded.
 	def page(self, connection, path = None):	# A non-WebSocket page was requested.  Use connection.address, connection.method, connection.query, connection.headers and connection.body (which should be empty) to find out more.  {{{
