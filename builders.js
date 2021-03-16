@@ -129,3 +129,29 @@ Object.defineProperty(Object.prototype, 'RemoveEvent', {
 		this.removeEventListener(name, impl, false);
 		return this;
 	}});
+
+var search = function() {
+	var ret = {'': {}};
+	var add = function(key, value) {
+		key = decodeURIComponent(key);
+		value = decodeURIComponent(value);
+		if (ret[''][key] === undefined) {
+			ret[''][key] = [value];
+			ret[key] = value;
+		}
+		else
+			ret[''][key].push(value);
+	};
+	var s = document.location.search;
+	if (s == '')
+		return ret;
+	s = s.substr(1).split('&');
+	for (var i = 0; i < s.length; ++i) {
+		var pos = s[i].indexOf('=');
+		if (pos == -1)
+			add(s[i], null);
+		else
+			add(s[i].substr(0, pos), s[i].substr(pos + 1));
+	}
+	return ret;
+}();
