@@ -580,17 +580,35 @@ class RPC(Websocket): # {{{
 			data = json.JSONDecoder().raw_decode(frame)[0]
 		except ValueError:
 			log('non-json frame: %s' % repr(frame))
-			return(None, 'non-json frame')
+			return (None, 'non-json frame')
 		if type(data) is not list or len(data) != 2 or not isinstance(data[0], str):
 			log('invalid frame %s' % repr(data))
-			return(None, 'invalid frame')
+			return (None, 'invalid frame')
 		if data[0] == 'call':
-			if self._delayed_calls is None and (not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable)):
-				log('invalid call frame %s' % repr(data))
-				return(None, 'invalid frame')
+			if not isinstance(data[1], list):
+				log('invalid call frame (no list) %s' % repr(data))
+				return (None, 'invalid frame')
+			if len(data[1]) != 4:
+				log('invalid call frame (list length is not 4) %s' % repr(data))
+				return (None, 'invalid frame')
+			if (data[1][0] is not None and not isinstance(data[1][0], int)):
+				log('invalid call frame (invalid id) %s' % repr(data))
+				return (None, 'invalid frame')
+			if not isinstance(data[1][1], str):
+				log('invalid call frame (no string target) %s' % repr(data))
+				return (None, 'invalid frame')
+			if not isinstance(data[1][2], list):
+				log('invalid call frame (no list args) %s' % repr(data))
+				return (None, 'invalid frame')
+			if not isinstance(data[1][3], dict):
+				log('invalid call frame (no dict kwargs) %s' % repr(data))
+				return (None, 'invalid frame')
+			if (self._delayed_calls is None and (not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable))):
+				log('invalid call frame (no callable) %s' % repr(data))
+				return (None, 'invalid frame')
 		elif data[0] not in ('error', 'return'):
 			log('invalid frame type %s' % repr(data))
-			return(None, 'invalid frame')
+			return (None, 'invalid frame')
 		return data
 	# }}}
 	def _recv(self, frame): # {{{
