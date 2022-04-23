@@ -1,6 +1,7 @@
 python-websocketd (0.2-1) UNRELEASED; urgency=medium
 
   * New release.
+  * Upload to Debian archive. Closes: #1010013
 
  -- Bas Wijnen <wijnen@debian.org>  Mon, 30 Nov 2015 11:28:41 -0500
 
