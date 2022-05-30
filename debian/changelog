@@ -1,9 +1,16 @@
-python-websocketd (0.2-1) UNRELEASED; urgency=medium
+python-websocketd (0.3-1) UNRELEASED; urgency=medium
+
+  * Update pip packaging.
+  * Use numpy for unmasking.
+
+ -- Bas Wijnen <wijnen@debian.org>  Mon, 30 May 2022 15:46:12 +0200
+
+python-websocketd (0.2-1) unstable; urgency=medium
 
   * New release.
   * Upload to Debian archive. Closes: #1010013
 
- -- Bas Wijnen <wijnen@debian.org>  Mon, 30 Nov 2015 11:28:41 -0500
+ -- Bas Wijnen <wijnen@debian.org>  Fri, 22 Apr 2022 16:18:31 +0200
 
 python-websocketd (0.1-1) unstable; urgency=medium
 

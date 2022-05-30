@@ -13,4 +13,4 @@ override_dh_auto_build:
 
 override_dh_auto_clean:
 	dh_auto_clean
-	rm -rf doxygen-output websocket_httpd.egg-info dist
+	rm -rf doxygen-output src/websocket_httpd.egg-info dist

@@ -4,7 +4,7 @@ Upstream-Contact: Bas Wijnen <wijnen@debian.org>
 Source: https://github.com/wijnen/python-websocketd
 
 Files: *
-Copyright: Copyright 2013 Bas Wijnen <wijnen@debian.org>
+Copyright: Copyright 2013-2022 Bas Wijnen <wijnen@debian.org>
 License: AGPL-3+
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU Affero General Public License as

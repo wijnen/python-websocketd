@@ -1,1 +1,1 @@
-../../rpc.js
+../../src/websocketd/rpc.js

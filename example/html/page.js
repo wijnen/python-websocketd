@@ -1,3 +1,4 @@
+"use strict";
 // This object is what connects us to the server.
 var server;
 

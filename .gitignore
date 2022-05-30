@@ -2,4 +2,4 @@
 /doxygen-output
 /__pycache__
 /dist
-/websocket_httpd.egg-info
+/src/websocket_httpd.egg-info

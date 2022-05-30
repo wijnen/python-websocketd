@@ -1372,3 +1372,10 @@ def iteration(*a, **ka): # {{{
 	_activate_all()
 	return network.iteration(*a, **ka)
 # }}}
+
+if __name__ == '__main__':
+	import importlib.resources
+	files = [x for x in importlib.resource.contents(__package__) if x.endswith(os.extsep + 'js')]
+	for file in files:
+		with importlib.resources.path(websocketd, 'rpc.js') as p:
+			print(p)

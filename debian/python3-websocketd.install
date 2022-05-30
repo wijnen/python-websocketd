@@ -1,2 +1,2 @@
-rpc.js /usr/share/python3-websocketd
-builders.js /usr/share/python3-websocketd
+src/websocketd/rpc.js /usr/share/python3-websocketd
+src/websocketd/builders.js /usr/share/python3-websocketd
