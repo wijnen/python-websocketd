@@ -87,6 +87,11 @@ import time
 import traceback
 from urllib.parse import urlparse, parse_qs, unquote
 from http.client import responses as httpcodes
+try:
+	import numpy as np
+	have_numpy = True
+except ImportError:
+	have_numpy = False
 # }}}
 
 #def tracer(a, b, c):
@@ -221,7 +226,7 @@ Sec-WebSocket-Key: 0\r
 	def _websocket_read(self, data, sync = False):	# {{{
 		# Websocket data consists of:
 		# 1 byte:
-		#	bit 7: 1 for last(or only) fragment; 0 for other fragments.
+		#	bit 7: 1 for last (or only) fragment; 0 for other fragments.
 		#	bit 6-4: extension stuff; must be 0.
 		#	bit 3-0: opcode.
 		# 1 byte:
@@ -296,7 +301,14 @@ Sec-WebSocket-Key: 0\r
 				# The following is slow!
 				# Don't do it if the mask is 0; this is always true if talking to another program using this module.
 				if mask != [0, 0, 0, 0]:
-					data = bytes([x ^ mask[i & 3] for i, x in enumerate(data)])
+					if have_numpy:
+						padding = 3 - (len(data) - 1) % 4
+						data_array = np.frombuffer(data + b'\0' * padding, dtype = np.int8).reshape((-1, 4))
+						data = (data_array ^ np.array(mask, dtype = np.int8).reshape((1, 4))).tobytes()
+						if padding > 0:
+							data = data[:-padding]
+					else:
+						data = bytes([x ^ mask[i & 3] for i, x in enumerate(data)])
 			else:
 				data = self.websocket_buffer[pos:pos + l]
 			self.websocket_buffer = self.websocket_buffer[pos + l:]
