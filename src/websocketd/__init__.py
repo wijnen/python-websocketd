@@ -81,7 +81,6 @@ import base64
 import hashlib
 import struct
 import json
-import collections
 import tempfile
 import time
 import traceback
@@ -529,7 +528,7 @@ class RPC(Websocket): # {{{
 		calls = self._delayed_calls
 		self._delayed_calls = None
 		for call in calls:
-			if not hasattr(self._target, call[1]) or not isinstance(getattr(self._target, call[1]), collections.Callable):
+			if not hasattr(self._target, call[1]) or not callable(getattr(self._target, call[1])):
 				self._send('error', 'invalid delayed call frame %s' % repr(call))
 			else:
 				self._call(call[0], call[1], call[2], call[3])
@@ -559,6 +558,10 @@ class RPC(Websocket): # {{{
 			my_id = RPC._get_index()
 			self.base._send('call', (my_id, self.attr, a, ka))
 			RPC._calls[my_id] = lambda x: self.do_reply(reply, my_id, x)
+		# }}}
+		def wait(self, wake, *a, **ka): # {{{
+			self.bg(wake, *a, **ka)
+			return (yield)
 		# }}}
 		def do_reply(self, reply, my_id, ret): # {{{
 			del RPC._calls[my_id]
@@ -615,7 +618,7 @@ class RPC(Websocket): # {{{
 			if not isinstance(data[1][3], dict):
 				log('invalid call frame (no dict kwargs) %s' % repr(data))
 				return (None, 'invalid frame')
-			if (self._delayed_calls is None and (not hasattr(self._target, data[1][1]) or not isinstance(getattr(self._target, data[1][1]), collections.Callable))):
+			if self._delayed_calls is None and (not hasattr(self._target, data[1][1]) or not callable(getattr(self._target, data[1][1]))):
 				log('invalid call frame (no callable) %s' % repr(data))
 				return (None, 'invalid frame')
 		elif data[0] not in ('error', 'return'):
@@ -1079,6 +1082,8 @@ class Httpd: # {{{
 			exts = {}
 			with open('/etc/mime.types') as f:
 				for ln in f:
+					if if ln.strip() == '' or ln.startswith('#'):
+						continue
 					items = ln.split()
 					for ext in items[1:]:
 						if ext not in exts:
