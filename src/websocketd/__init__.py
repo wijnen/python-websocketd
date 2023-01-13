@@ -110,7 +110,7 @@ DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
 class Websocket: # {{{
 	'''Main class implementing the websocket protocol.
 	'''
-	def __init__(self, port, url = '/', recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, *a, **ka): # {{{
+	def __init__(self, port, recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, *a, **ka): # {{{
 		'''When constructing a Websocket, a connection is made to the
 		requested port, and the websocket handshake is performed.  This
 		constructor passes any extra arguments to the network.Socket
@@ -120,8 +120,7 @@ class Websocket: # {{{
 		some arguments that should not be used when calling it
 		directly.
 		@param port: Host and port to connect to, same format as
-			python-network uses.
-		@param url: The url to request at the host.
+			python-network uses, or None for an incoming connection (internally used).
 		@param recv: Function to call when a data packet is received
 			asynchronously.
 		@param method: Connection method to use.
@@ -167,7 +166,7 @@ class Websocket: # {{{
 		else:
 			self.remote = socket.remote
 		hdrdata = b''
-		if url is not None:
+		if port is not None:
 			elist = []
 			for e in extra:
 				elist.append('%s: %s\r\n' % (e, extra[e]))
@@ -175,6 +174,16 @@ class Websocket: # {{{
 				userpwd = user + ':' + password + '\r\n'
 			else:
 				userpwd = ''
+			p = re.match('^(?:([a-z0-9-]+)://)?([^:/?#]+)(?::([^:/?#]+))?([:/?#].*)?$', port)
+			# Group 1: protocol or None
+			# Group 2: hostname
+			# Group 3: port
+			# Group 4: everything after the port (address, query string, etc)
+			url = p.group(4)
+			if url is None:
+				url = '/'
+			elif not url.startswith('/'):
+				url = '/' + url
 			socket.send(('''\
 %s %s HTTP/1.1\r
 Connection: Upgrade\r
@@ -832,7 +841,7 @@ class _Httpd_connection:	# {{{
 		newkey = base64.b64encode(hashlib.sha1(self.headers['sec-websocket-key'].strip().encode('utf-8') + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()).decode('utf-8')
 		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
 		self.server.reply(self, 101, None, None, headers, close = False)
-		self.websocket(None, recv = self.server.recv, url = None, socket = self.socket, error = self.error, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
+		self.websocket(None, recv = self.server.recv, socket = self.socket, error = self.error, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
 	# }}}
 	def _parse_headers(self, message): # {{{
 		lines = []
@@ -1082,7 +1091,7 @@ class Httpd: # {{{
 			exts = {}
 			with open('/etc/mime.types') as f:
 				for ln in f:
-					if if ln.strip() == '' or ln.startswith('#'):
+					if ln.strip() == '' or ln.startswith('#'):
 						continue
 					items = ln.split()
 					for ext in items[1:]:
