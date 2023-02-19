@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 foldmethod=marker :
 
-# {{{ Copyright 2013-2016 Bas Wijnen <wijnen@debian.org>
+# {{{ Copyright 2013-2023 Bas Wijnen <wijnen@debian.org>
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -24,21 +24,50 @@ class Rpc:
 	def __init__(self, remote):
 		'remote is an object like this one, to call remote functions on.'
 		self.remote = remote
+
 		# Call some functions.
+
 		# This waits for the client to complete the function.
 		self.remote.foo()
+
 		# This sends the event, but does not wait for completion. The
 		# return value is lost.
 		self.remote.foo.event()
+
+		# This is the same as event(), but handles the return value in a callback.
+		self.remote.foo.bg(lambda ret: print('foo returned %s' % repr(ret)))
+
 		# Arguments can also be passed.
 		self.remote.bar(25)
+
 	def baz(self, arg1, arg2 = 42):
 		'This function is called from the client.'
 		print('baz called with {}, {}'.format(arg1, arg2))
 		# Return a value.
 		return 'a value'
+
+	def bam(self):
+		'''A generator can yield to free the processor. It will return
+		at a later time.
+		It needs to make sure that it continues running. The initial
+		statement must be a yield, which will return immediately with
+		its wake function. The wake function must be passed to the code
+		that will wake up the generator.'''
+		wake = (yield)
+
+		print('running blocking function')
+
+		# Schedule a timeout 3 seconds from now and use wake as the callback function.
+		websocketd.add_timeout(time.time() + 3, wake)
+
+		# Wait for the timeout.
+		yield
+
+		# Return a value.
+		return 'Ready!'
+
 	def quit(self):
-		'This function is called from the client and makes a call to the client.'
+		'This function is called from the client.'
 		print('quit called, stopping main loop.')
 		websocketd.endloop()
 
@@ -56,7 +85,7 @@ class Rpc:
 server = websocketd.RPChttpd(1234, Rpc, httpdirs = ('html',), tls = False)
 
 # Tell the user that things are set up.
-websocketd.log('running')
+websocketd.log('running on port 1234')
 
 # Run the main loop.
 websocketd.fgloop()

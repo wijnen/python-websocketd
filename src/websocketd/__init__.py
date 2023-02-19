@@ -220,12 +220,12 @@ Sec-WebSocket-Key: 0\r
 				self._is_closed = True
 				if self.websockets is not None:
 					self.websockets.remove(self)
-				self.closed()
+				self._websocket_closed()
 			return b''
 		if self.websockets is not None:
 			self.websockets.add(self)
 		self.socket.disconnect_cb(disconnect)
-		self.opened()
+		self._websocket_opened()
 		if len(hdrdata) > 0:
 			self._websocket_read(hdrdata)
 		if DEBUG > 2:
@@ -347,11 +347,11 @@ Sec-WebSocket-Key: 0\r
 			self.opcode = None
 			if opcode == 8:
 				# Connection close request.
-				self.close()
+				self._websocket_close()
 				return None
 			elif opcode == 9:
 				# Ping.
-				self.send(data, 10)	# Pong
+				self._websocket_send(data, 10)	# Pong
 			elif opcode == 10:
 				# Pong.
 				self._pong = True
@@ -376,7 +376,7 @@ Sec-WebSocket-Key: 0\r
 				log('invalid opcode')
 				self.socket.close()
 	# }}}
-	def send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
+	def _websocket_send(self, data, opcode = 1):	# Send a WebSocket frame.  {{{
 		'''Send a Websocket frame to the remote end of the connection.
 		@param data: Data to send.
 		@param opcode: Opcade to send.  0 = fragment, 1 = text packet, 2 = binary packet, 8 = close request, 9 = ping, 10 = pong.
@@ -412,24 +412,24 @@ Sec-WebSocket-Key: 0\r
 		if opcode == 8:
 			self.socket.close()
 	# }}}
-	def ping(self, data = b''): # Send a ping; return False if no pong was seen for previous ping.  Other received packets also count as a pong. {{{
+	def _websocket_ping(self, data = b''): # Send a ping; return False if no pong was seen for previous ping.  Other received packets also count as a pong. {{{
 		'''Send a ping, return if a pong was received since last ping.
 		@param data: Data to send with the ping.
 		@return True if a pong was received since last ping, False if not.
 		'''
 		ret = self._pong
 		self._pong = False
-		self.send(data, opcode = 9)
+		self._websocket_send(data, opcode = 9)
 		return ret
 	# }}}
-	def close(self):	# Close a WebSocket.  (Use self.socket.close for other connections.)  {{{
+	def _websocket_close(self):	# Close a WebSocket.  (Use self.socket.close for other connections.)  {{{
 		'''Send close request, and close the connection.
 		@return None.
 		'''
-		self.send(b'', 8)
+		self._websocket_send(b'', 8)
 		self.socket.close()
 	# }}}
-	def opened(self): # {{{
+	def _websocket_opened(self): # {{{
 		'''This function does nothing by default, but can be overridden
 		by the application.  It is called when a new websocket is
 		opened.  As this happens from the constructor, it is useless to
@@ -439,7 +439,7 @@ Sec-WebSocket-Key: 0\r
 		'''
 		pass
 	# }}}
-	def closed(self): # {{{
+	def _websocket_closed(self): # {{{
 		'''This function does nothing by default, but can be overridden
 		by the application.  It is called when the websocket is closed.
 		@return None.
@@ -592,7 +592,7 @@ class RPC(Websocket): # {{{
 		'''
 		if DEBUG > 1:
 			log('sending:' + repr(type) + repr(object))
-		Websocket.send(self, json.dumps((type, object)))
+		Websocket._websocket_send(self, json.dumps((type, object)))
 	# }}}
 	def _parse_frame(self, frame): # {{{
 		'''Decode an RPC packet.

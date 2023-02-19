@@ -5,10 +5,11 @@ var server;
 // When the server makes a call to us, the corresponding function from this object is called.
 var callbacks = {
 	foo: function() {
-		console.info('foo was called')
+		console.info('foo was called');
+		return 'FOO!';
 	},
 	bar: function(arg) {
-		console.info('bar was called, arg:', arg)
+		console.info('bar was called, arg:', arg);
 	}
 };
 
@@ -25,16 +26,25 @@ window.AddEvent('load', function() {
 function onopen() {
 	// We are connected to the server, show this to the user.
 	document.getElementById('connected').checked = true;
+
 	// Make some calls to the server right away.
 	server.call('baz', ['my first arg', 2], {}, function(ret) { console.info('baz 1 returned', ret); });
+
+	// Call a blocking function.
+	server.call('bam', [], {}, function(ret) { console.info('bam finally returned'); });
+
 	// Default arguments don't need to be passed.
 	server.call('baz', ['my other first arg'], {}, function(ret) { console.info('baz 2 returned', ret); });
+
 	// Named arguments can be used instead of positional arguments.
 	server.call('baz', [], {arg1: 30, arg2: 'Hello!'}, function(ret) { console.info('baz 3 returned', ret); });
+
 	// Positional and named arguments can be mixed.
 	server.call('baz', [70], {arg2: 'Hi!'}, function(ret) { console.info('baz 4 returned', ret); });
+
 	// If you don't need the return notification, the function and arguments can be omitted.
 	server.call('baz', [7]);
+
 	// Wait 10 seconds, then tell server to stop.
 	setTimeout(function() { server.call('quit')}, 10000);
 }

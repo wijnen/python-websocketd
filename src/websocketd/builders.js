@@ -1,20 +1,14 @@
-// vim: set foldmethod=marker :
+"use strict";
 
-function Create(name, className) {
+// Creating and managing elements and their properties. {{{
+
+// Create a new element and return it. Optionally give it a class.
+function Create(name, className) { // {{{
 	return document.createElement(name).AddClass(className);
-}
+} // }}}
 
-Object.defineProperty(Object.prototype, 'Offset', {
-	enumerable: false,
-	configurable: true,
-	writable: true,
-	value: function(e) {
-		if (this.offsetParent)
-			return this.offsetParent.Offset({pageX: e.pageX - this.offsetLeft, pageY: e.pageY - this.offsetTop});
-		return [e.pageX - this.offsetLeft, e.pageY - this.offsetTop];
-	}});
-
-Object.defineProperty(Object.prototype, 'Add', {
+// Add a child element and return it (for inline chaining). Optionally give it a class.
+Object.defineProperty(Object.prototype, 'Add', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -30,18 +24,22 @@ Object.defineProperty(Object.prototype, 'Add', {
 			}
 		}
 		return object[0];
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'AddElement', {
+// Create a new element and add it as a child. Return the new element (for inline chaining).
+Object.defineProperty(Object.prototype, 'AddElement', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
 	value: function(name, className) {
 		var element = document.createElement(name);
 		return this.Add(element, className);
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'AddText', {
+// Add a child text node and return the element (not the text).
+Object.defineProperty(Object.prototype, 'AddText', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -49,9 +47,11 @@ Object.defineProperty(Object.prototype, 'AddText', {
 		var t = document.createTextNode(text);
 		this.Add(t);
 		return this;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'ClearAll', {
+// Remove all child elements.
+Object.defineProperty(Object.prototype, 'ClearAll', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -59,9 +59,11 @@ Object.defineProperty(Object.prototype, 'ClearAll', {
 		while (this.firstChild)
 			this.removeChild(this.firstChild);
 		return this;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'AddClass', {
+// Add a class to an element. Keep all existing classes. Return the element for inline chaining.
+Object.defineProperty(Object.prototype, 'AddClass', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -76,9 +78,11 @@ Object.defineProperty(Object.prototype, 'AddClass', {
 		}
 		this.className = classes.join(' ');
 		return this;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'RemoveClass', {
+// Remove a class from an element. Keep all other existing classes. Return the element for inline chaining.
+Object.defineProperty(Object.prototype, 'RemoveClass', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -94,9 +98,11 @@ Object.defineProperty(Object.prototype, 'RemoveClass', {
 		}
 		this.className = classes.join(' ');
 		return this;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'HaveClass', {
+// Check if an element has a given class.
+Object.defineProperty(Object.prototype, 'HaveClass', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
@@ -110,27 +116,75 @@ Object.defineProperty(Object.prototype, 'HaveClass', {
 				return true;
 		}
 		return false;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'AddEvent', {
+// Add event listener. Return the object for inline chaining.
+Object.defineProperty(Object.prototype, 'AddEvent', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
-	value: function(name, impl) {
-		this.addEventListener(name, impl, false);
+	value: function(name, impl, capture) {
+		this.addEventListener(name, impl, !!capture);
 		return this;
-	}});
+	}
+}); // }}}
 
-Object.defineProperty(Object.prototype, 'RemoveEvent', {
+// Remove event listener. Arguments should be identical to previous ones for AddEvent. Return the object for inline chaining.
+Object.defineProperty(Object.prototype, 'RemoveEvent', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
 	value: function(name, impl) {
 		this.removeEventListener(name, impl, false);
 		return this;
-	}});
+	}
+}); // }}}
 
-var search = function() {
+// Compute offset of object from page origin.
+Object.defineProperty(Object.prototype, 'Offset', { // {{{
+	enumerable: false,
+	configurable: true,
+	writable: true,
+	value: function(e) {
+		if (this.offsetParent)
+			return this.offsetParent.Offset({pageX: e.pageX - this.offsetLeft, pageY: e.pageY - this.offsetTop});
+		return [e.pageX - this.offsetLeft, e.pageY - this.offsetTop];
+	}
+}); // }}}
+
+// }}}
+
+// Build dictionary for cookies.
+var cookie = function() { // {{{
+	var ret = {};
+	var data = document.cookie.split(';');
+	for (var c = 0; c < data.length; ++c) {
+		var m = data[c].match(/^(.*?)=(.*)$/);
+		if (m === null)
+			continue;
+		ret[m[1].trim()] = m[2].trim();
+	}
+	return ret;
+}(); // }}}
+
+// Set a cookie to a (new) value. Set to null to discard it. SameSite defaults to 'Strict'.
+function SetCookie(key, value, SameSite) { // {{{
+	if (SameSite === undefined)
+		SameSite = 'Strict';
+	if (value === null) {
+		delete cookie[key];
+		document.cookie = key + '=; SameSite=' + SameSite + '; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+	}
+	else {
+		document.cookie = key + '=' + encodeURIComponent(value) + '; SameSite=' + SameSite;
+	}
+} // }}}
+
+// Build dictionary for query string.
+var search = function() { // {{{
+	// search[key] is the first given value for each key.
+	// search[''][key] is an array of all given values.
 	var ret = {'': {}};
 	var add = function(key, value) {
 		key = decodeURIComponent(key);
@@ -154,4 +208,6 @@ var search = function() {
 			add(s[i].substr(0, pos), s[i].substr(pos + 1));
 	}
 	return ret;
-}();
+}(); // }}}
+
+// vim: set foldmethod=marker :
