@@ -167,6 +167,8 @@ class Websocket: # {{{
 			self.remote = socket.remote
 		hdrdata = b''
 		if port is not None:
+			if isinstance(port, int):
+				port = 'localhost:%d' % port
 			elist = []
 			for e in extra:
 				elist.append('%s: %s\r\n' % (e, extra[e]))
@@ -177,27 +179,39 @@ class Websocket: # {{{
 			p = re.match('^(?:([a-z0-9-]+)://)?([^:/?#]+)(?::([^:/?#]+))?([:/?#].*)?$', port)
 			# Group 1: protocol or None
 			# Group 2: hostname
-			# Group 3: port
+			# Group 3: port or None
 			# Group 4: everything after the port (address, query string, etc)
 			url = p.group(4)
 			if url is None:
 				url = '/'
 			elif not url.startswith('/'):
 				url = '/' + url
+			if p.group(3) is None:
+				host = p.group(2)
+			else:
+				host = p.group(2) + ':' + p.group(3)
+			# Sec-Websocket-Key is not random, because that has no
+			# value. The example value from the RFC is used.
+			# Differently put: it uses a special random generator
+			# which always returns range(0x01, 0x11).
 			socket.send(('''\
 %s %s HTTP/1.1\r
-Connection: Upgrade\r
+Host: %s\r
 Upgrade: websocket\r
-Sec-WebSocket-Key: 0\r
+Connection: Upgrade\r
+Sec-WebSocket-Key: AQIDBAUGBwgJCgsMDQ4PEC==\r
+Sec-WebSocket-Version: 13\r
 %s%s\r
-''' % (method, url, userpwd, ''.join(elist))).encode('utf-8'))
+''' % (method, url, host, userpwd, ''.join(elist))).encode('utf-8'))
 			while b'\n' not in hdrdata:
 				r = socket.recv()
 				if r == b'':
 					raise EOFError('EOF while reading reply')
 				hdrdata += r
 			pos = hdrdata.index(b'\n')
-			assert int(hdrdata[:pos].split()[1]) == 101
+			if int(hdrdata[:pos].split()[1]) != 101:
+				log('Unexpected reply: %s' % hdrdata)
+				raise ValueError('wrong reply code')
 			hdrdata = hdrdata[pos + 1:]
 			data = {}
 			while True:
@@ -839,7 +853,7 @@ class _Httpd_connection:	# {{{
 			self.server.reply(self, 400, close = True)
 			return
 		newkey = base64.b64encode(hashlib.sha1(self.headers['sec-websocket-key'].strip().encode('utf-8') + b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest()).decode('utf-8')
-		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'websocket', 'Sec-WebSocket-Version': '13'}
+		headers = {'Sec-WebSocket-Accept': newkey, 'Connection': 'Upgrade', 'Upgrade': 'WebSocket'}
 		self.server.reply(self, 101, None, None, headers, close = False)
 		self.websocket(None, recv = self.server.recv, socket = self.socket, error = self.error, mask = (None, False), websockets = self.server.websockets, data = self.data, real_remote = self.headers.get('x-forwarded-for'))
 	# }}}

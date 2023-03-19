@@ -1,5 +1,6 @@
 /example/tls.pem
 /doxygen-output
-/__pycache__
-/dist
-/src/websocket_httpd.egg-info
+/__pycache__/
+/dist/
+/src/websocket_httpd.egg-info/
+/src/websocketd/__pycache__/
