@@ -110,7 +110,7 @@ DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
 class Websocket: # {{{
 	'''Main class implementing the websocket protocol.
 	'''
-	def __init__(self, port, recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, *a, **ka): # {{{
+	def __init__(self, port, recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, keepalive = 250, *a, **ka): # {{{
 		'''When constructing a Websocket, a connection is made to the
 		requested port, and the websocket handshake is performed.  This
 		constructor passes any extra arguments to the network.Socket
@@ -145,10 +145,11 @@ class Websocket: # {{{
 		@param websockets: For interal use by the server.  A set to remove the socket from on disconnect.
 		@param data: For internal use by the server.  Data to pass through to callback functions.
 		@param real_remote: For internal use by the server.  Override detected remote.  Used to have proper remotes behind virtual proxy.
+		@param keepalive: Seconds between keepalive pings, or None to disable keepalive pings.
 		'''
 		self.recv = recv
 		self.mask = mask
-		self.websockets = websockets
+		self._websockets = websockets
 		self.websocket_buffer = b''
 		self.websocket_fragments = b''
 		self.opcode = None
@@ -232,18 +233,31 @@ Sec-WebSocket-Version: 13\r
 		def disconnect(socket, data):
 			if not self._is_closed:
 				self._is_closed = True
-				if self.websockets is not None:
-					self.websockets.remove(self)
+				if self._websockets is not None:
+					self._websockets.remove(self)
+				if self._keepalive is not None:
+					remove_timeout(self._keepalive)
 				self._websocket_closed()
 			return b''
-		if self.websockets is not None:
-			self.websockets.add(self)
+		if self._websockets is not None:
+			self._websockets.add(self)
 		self.socket.disconnect_cb(disconnect)
+		# Set up keepalive heartbeat.
+		self._websocket_keepalive_time = keepalive
+		if keepalive is not None:
+			self._keepalive = add_timeout(time.time() + keepalive, self._websocket_keepalive)
+		else:
+			self._keepalive = None
 		self._websocket_opened()
 		if len(hdrdata) > 0:
 			self._websocket_read(hdrdata)
 		if DEBUG > 2:
 			log('opened websocket')
+	# }}}
+	def _websocket_keepalive(self):	# {{{
+		if not self._websocket_ping():
+			log('Warning: no keepalive reply received')
+		self._keepalive = add_timeout(time.time() + self._websocket_keepalive_time, self._websocket_keepalive)
 	# }}}
 	def _websocket_read(self, data, sync = False):	# {{{
 		# Websocket data consists of:
