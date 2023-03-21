@@ -177,7 +177,7 @@ class Websocket: # {{{
 				userpwd = user + ':' + password + '\r\n'
 			else:
 				userpwd = ''
-			p = re.match('^(?:([a-z0-9-]+)://)?([^:/?#]+)(?::([^:/?#]+))?([:/?#].*)?$', port)
+			p = re.match('^(?:([a-z0-9-]+)://)?([^:/?#]*)(?::([^:/?#]+))?([:/?#].*)?$', port)
 			# Group 1: protocol or None
 			# Group 2: hostname
 			# Group 3: port or None
@@ -237,7 +237,7 @@ Sec-WebSocket-Version: 13\r
 					self._websockets.remove(self)
 				if self._keepalive is not None:
 					remove_timeout(self._keepalive)
-				self._websocket_closed()
+				call(None, self._websocket_closed)
 			return b''
 		if self._websockets is not None:
 			self._websockets.add(self)
