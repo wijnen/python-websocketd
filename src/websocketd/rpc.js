@@ -94,13 +94,27 @@ function Rpc(obj, onopen, onclose) { // {{{
 			return ret.unlock();
 		}
 		if (_rpc_queue.length > 0)
-			_rpc_message(ws, obj, _rpc_queue.shift().data);
+			_rpc_message(ws, obj, _rpc_queue.shift());
 		ret.unlock();
 		setTimeout(_rpc_process, 0);
 	};
 	ws.onmessage = function(frame) {
-		_rpc_queue.push(frame);
-		setTimeout(_rpc_process, 0);
+		// Don't use JSON.parse, because it cannot handle NaN and Infinity.
+		// Creating a Function seems like a security risk, but it isn't
+		// because the data and this file come from the same server; if
+		// it is compromised, it will just send malicious data
+		// directly. So using Function does not lead to additional threats.
+		var data = Function('"use strict"; return (' + frame.data + ')')();
+		if (data[0] == 'error')
+			alert('error: ' + data[1]);
+		else if (data[0] == 'return')
+			_rpc_calls[data[1][0]] (data[1][1]);
+		else if (data[0] == 'call') {
+			_rpc_queue.push(data[1]);
+			setTimeout(_rpc_process, 0);
+		}
+		else
+			alert('unexpected command on websocket: ' + data[0]);
 	};
 	ret.close = function() {
 		ws.close();
@@ -154,39 +168,22 @@ function Rpc(obj, onopen, onclose) { // {{{
 	return ret;
 } // }}}
 
-function _rpc_message(websocket, obj, frame) { // {{{
-	// Don't use JSON.parse, because it cannot handle NaN and Infinity.
-	// eval seems like a security risk, but it isn't because the data
-	// and this file come from the same server; if it is compromised,
-	// it will just send malicious data directly.
-	var data = eval('(' + frame + ')');
-	var cmd = data[0];
-	if (cmd == 'call') {
-		try {
-			var id = data[1][0];
-			var ret;
-			if (data[1][1] in obj)
-				ret = obj[data[1][1]].apply(obj, data[1][2]);
-			else if ('' in obj)
-				ret = obj[''].apply(obj, [data[1][1]].concat(data[1][2]));
-			else
-				console.warn('Warning: undefined function ' + data[1][1] + ' called, but no default callback defined');
-			if (id != null)
-				websocket.send(_rpc_tojson(['return', [id, ret]]));
-		}
-		catch (e) {
-			console.error('call returns error', e);
-			if (id != null)
-				websocket.send(_rpc_tojson(['error', e]));
-		}
+function _rpc_message(websocket, obj, data) { // {{{
+	try {
+		var id = data[0];
+		var ret;
+		if (data[1] in obj)
+			ret = obj[data[1]].apply(obj, data[2]);
+		else if ('' in obj)
+			ret = obj[''].apply(obj, [data[1]].concat(data[2]));
+		else
+			console.warn('Warning: undefined function ' + data[1] + ' called, but no default callback defined');
+		if (id != null)
+			websocket.send(_rpc_tojson(['return', [id, ret]]));
 	}
-	else if (cmd == 'error') {
-		alert('error: ' + data[1]);
-	}
-	else if (cmd == 'return') {
-		_rpc_calls[data[1][0]] (data[1][1]);
-	}
-	else {
-		alert('unexpected command on websocket: ' + cmd);
+	catch (e) {
+		console.error('called function returns error', e);
+		if (id != null)
+			websocket.send(_rpc_tojson(['error', e]));
 	}
 } // }}}
