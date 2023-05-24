@@ -110,7 +110,7 @@ DEBUG = 0 if os.getenv('NODEBUG') else int(os.getenv('DEBUG', 1))
 class Websocket: # {{{
 	'''Main class implementing the websocket protocol.
 	'''
-	def __init__(self, port, recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, keepalive = 250, *a, **ka): # {{{
+	def __init__(self, port, recv = None, method = 'GET', user = None, password = None, extra = {}, socket = None, mask = (None, True), websockets = None, data = None, real_remote = None, keepalive = 50, *a, **ka): # {{{
 		'''When constructing a Websocket, a connection is made to the
 		requested port, and the websocket handshake is performed.  This
 		constructor passes any extra arguments to the network.Socket
