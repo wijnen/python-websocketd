@@ -163,21 +163,22 @@ var cookie = function() { // {{{
 		var m = data[c].match(/^(.*?)=(.*)$/);
 		if (m === null)
 			continue;
-		ret[m[1].trim()] = m[2].trim();
+		ret[decodeURIComponent(m[1].trim())] = decodeURIComponent(m[2].trim());
 	}
 	return ret;
 }(); // }}}
 
-// Set a cookie to a (new) value. Set to null to discard it. SameSite defaults to 'Strict'.
+// Set a cookie to a (new) value. Set to null to discard it. SameSite defaults to 'Strict'. Other options such as expires can not be added to value, as they are encoded to %-notation. They can be added to SameSite.
 function SetCookie(key, value, SameSite) { // {{{
 	if (SameSite === undefined)
 		SameSite = 'Strict';
 	if (value === null) {
 		delete cookie[key];
-		document.cookie = key + '=; SameSite=' + SameSite + '; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+		document.cookie = encodeURIComponent(key) + '=; SameSite=' + SameSite + '; expires=Thu, 01 Jan 1970 00:00:01 GMT';
 	}
 	else {
-		document.cookie = key + '=' + encodeURIComponent(value) + '; SameSite=' + SameSite;
+		cookie[key] = value;
+		document.cookie = encodeURIComponent(key) + '=' + encodeURIComponent(value) + '; SameSite=' + SameSite;
 	}
 } // }}}
 
