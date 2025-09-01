@@ -7,7 +7,8 @@ function Create(name, className) { // {{{
 	return document.createElement(name).AddClass(className);
 } // }}}
 
-// Add a child element and return it (for inline chaining). Optionally give it a class.
+// Add a child element and return it (for inline chaining). Optionally give it
+// a class.
 Object.defineProperty(Object.prototype, 'Add', { // {{{
 	enumerable: false,
 	configurable: true,
@@ -27,7 +28,8 @@ Object.defineProperty(Object.prototype, 'Add', { // {{{
 	}
 }); // }}}
 
-// Create a new element and add it as a child. Return the new element (for inline chaining).
+// Create a new element and add it as a child. Return the new element (for
+// inline chaining).
 Object.defineProperty(Object.prototype, 'AddElement', { // {{{
 	enumerable: false,
 	configurable: true,
@@ -62,7 +64,8 @@ Object.defineProperty(Object.prototype, 'ClearAll', { // {{{
 	}
 }); // }}}
 
-// Add a class to an element. Keep all existing classes. Return the element for inline chaining.
+// Add a class to an element. Keep all existing classes. Return the element for
+// inline chaining.
 Object.defineProperty(Object.prototype, 'AddClass', { // {{{
 	enumerable: false,
 	configurable: true,
@@ -70,33 +73,42 @@ Object.defineProperty(Object.prototype, 'AddClass', { // {{{
 	value: function(className) {
 		if (!className)
 			return this;
-		var classes = this.className.split(' ');
-		var newclasses = className.split(' ');
-		for (var i = 0; i < newclasses.length; ++i) {
-			if (newclasses[i] && classes.indexOf(newclasses[i]) < 0)
-				classes.push(newclasses[i]);
+		if (!(className instanceof Array))
+			className = [className];
+		var cls = [
+			this.className.split(' '),
+			className
+		];
+		var ret = [];
+		for (var c = 0; c < cls.length; ++c) {
+			for (var i = 0; i < cls[c].length; ++i) {
+				if (cls[c][i] && ret.indexOf(cls[c][i]) < 0)
+					ret.push(cls[c][i]);
+			}
 		}
-		this.className = classes.join(' ');
+		this.className = ret.join(' ');
 		return this;
 	}
 }); // }}}
 
-// Remove a class from an element. Keep all other existing classes. Return the element for inline chaining.
+// Remove a class from an element. Keep all other existing classes. Return the
+// element for inline chaining.
 Object.defineProperty(Object.prototype, 'RemoveClass', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
-	value: function(className) {
-		if (!className)
+	value: function(classes) {
+		if (!classes)
 			return this;
-		var classes = this.className.split(' ');
-		var oldclasses = className.split(' ');
-		for (var i = 0; i < oldclasses.length; ++i) {
-			var pos = classes.indexOf(oldclasses[i]);
+		if (!(classes instanceof Array))
+			classes = [classes];
+		var oldclasses = this.className.split(' ');
+		for (var i = 0; i < classes.length; ++i) {
+			var pos = oldclasses.indexOf(classes[i]);
 			if (pos >= 0)
-				classes.splice(pos, 1);
+				oldclasses.splice(pos, 1);
 		}
-		this.className = classes.join(' ');
+		this.className = oldclasses.join(' ');
 		return this;
 	}
 }); // }}}
@@ -110,11 +122,9 @@ Object.defineProperty(Object.prototype, 'HaveClass', { // {{{
 		if (!className)
 			return true;
 		var classes = this.className.split(' ');
-		for (var i = 0; i < classes.length; ++i) {
-			var pos = classes.indexOf(className);
-			if (pos >= 0)
-				return true;
-		}
+		var pos = classes.indexOf(className);
+		if (pos >= 0)
+			return true;
 		return false;
 	}
 }); // }}}
@@ -130,13 +140,14 @@ Object.defineProperty(Object.prototype, 'AddEvent', { // {{{
 	}
 }); // }}}
 
-// Remove event listener. Arguments should be identical to previous ones for AddEvent. Return the object for inline chaining.
+// Remove event listener. Arguments should be identical to previous ones for
+// AddEvent. Return the object for inline chaining.
 Object.defineProperty(Object.prototype, 'RemoveEvent', { // {{{
 	enumerable: false,
 	configurable: true,
 	writable: true,
-	value: function(name, impl) {
-		this.removeEventListener(name, impl, false);
+	value: function(name, impl, capture) {
+		this.removeEventListener(name, impl, !!capture);
 		return this;
 	}
 }); // }}}
@@ -163,12 +174,15 @@ var cookie = function() { // {{{
 		var m = data[c].match(/^(.*?)=(.*)$/);
 		if (m === null)
 			continue;
-		ret[decodeURIComponent(m[1].trim())] = decodeURIComponent(m[2].trim());
+		ret[decodeURIComponent(m[1].trim())] =
+			decodeURIComponent(m[2].trim());
 	}
 	return ret;
 }(); // }}}
 
-// Set a cookie to a (new) value. Set to null to discard it. SameSite defaults to 'Strict'. Other options such as expires can not be added to value, as they are encoded to %-notation. They can be added to SameSite.
+// Set a cookie to a (new) value. Set to null to discard it. SameSite defaults
+// to 'Strict'. Other options such as expires can not be added to value, as
+// they are encoded to %-notation. They can be added to SameSite.
 function SetCookie(key, value, SameSite) { // {{{
 	if (SameSite === undefined)
 		SameSite = 'Strict';

@@ -339,8 +339,8 @@ Sec-WebSocket-Version: 13\r
 				if mask != [0, 0, 0, 0]:
 					if have_numpy:
 						padding = 3 - (len(data) - 1) % 4
-						data_array = np.frombuffer(data + b'\0' * padding, dtype = np.int8).reshape((-1, 4))
-						data = (data_array ^ np.array(mask, dtype = np.int8).reshape((1, 4))).tobytes()
+						data_array = np.frombuffer(data + b'\0' * padding, dtype = np.uint8).reshape((-1, 4))
+						data = (data_array ^ np.array(mask, dtype = np.uint8).reshape((1, 4))).tobytes()
 						if padding > 0:
 							data = data[:-padding]
 					else:
