@@ -728,10 +728,13 @@ def _activate_all(): # {{{
 	'''Internal function to activate all inactive RPC websockets.
 	@return False, so this can be registered as an idle task.
 	'''
-	if _activation[0] is not None:
-		for s in _activation[0]:
+	todo = _activation[0]
+	_activation[0] = set()
+	while len(todo) > 0:
+		for s in todo:
 			s()
-	_activation[0].clear()
+		todo = _activation[0]
+		_activation[0] = set()
 	_activation[1] = None
 	return False
 # }}}
@@ -832,21 +835,33 @@ class _Httpd_connection:	# {{{
 				log('Debug: not a websocket')
 			self.body = self.socket.unread()
 			if self.method.upper() == 'POST':
-				if 'content-type' not in self.headers or self.headers['content-type'].lower().split(';')[0].strip() != 'multipart/form-data':
-					log('Invalid Content-Type for POST; must be multipart/form-data (not %s)\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
+				if 'content-type' not in self.headers:
+					log('Missing Content-Type for POST\n')
 					self.server.reply(self, 500, close = True)
 					return
+				self.ct = self.headers['content-type'].lower().split(';')[0]
 				args = self._parse_args(self.headers['content-type'])[1]
-				if 'boundary' not in args:
-					log('Invalid Content-Type for POST: missing boundary in %s\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
+				if self.ct == 'text/plain':
+					self.charset = args.get('charset', 'utf-8')
+				elif self.ct == 'application/x-www-form-urlencoded':
+					pass
+				elif self.ct == 'multipart/form-data':
+					if 'boundary' not in args:
+						log('Invalid Content-Type for POST: missing boundary in %s\n' % (self.headers['content-type'] if 'content-type' in self.headers else 'undefined'))
+						self.server.reply(self, 500, close = True)
+						return
+					self.boundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'\r\n'
+					self.endboundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'--\r\n'
+				else:
+					log('Invalid Content-Type for POST; must be text/plain, application/x-www-form-urlencoded, or multipart/form-data (not %s)\n' % ct[0])
 					self.server.reply(self, 500, close = True)
 					return
-				self.boundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'\r\n'
-				self.endboundary = b'\r\n' + b'--' + args['boundary'].encode('utf-8') + b'--\r\n'
 				self.post_state = None
 				self.post = [{}, {}]
 				self.socket.read(self._post)
 				self._post(b'')
+				return
+
 			else:
 				try:
 					if not self.server.page(self):
@@ -943,6 +958,25 @@ class _Httpd_connection:	# {{{
 	def _post(self, data):	# {{{
 		#log('post body %s data %s' % (repr(self.body), repr(data)))
 		self.body += data
+		if self.ct != 'multipart/form-data':
+			# TODO: Handle body without content-length.
+			cl = int(self.headers['content-length'])
+			if len(self.body) < cl:
+				return
+			# Body is complete.
+			body = self.body[:cl]
+			if self.ct == 'text/plain':
+				args = self._parse_args(self.headers['content-type'])[1]
+				self.post = body.decode(args.get('charset', 'utf-8'), 'replace')
+			else:
+				assert self.ct == 'application/x-www-form-urlencoded'
+				parts = body.split(b'&')
+				self.post = {}
+				for p in parts:
+					k, v = p.split(b'=')
+					self.post[unquote(k)] = unquote(v)
+			self._finish_post()
+			return
 		if self.post_state is None:
 			# Waiting for first boundary.
 			if self.boundary not in b'\r\n' + self.body:
@@ -953,7 +987,6 @@ class _Httpd_connection:	# {{{
 			self.body = self.body[self.body.index(self.boundary) + len(self.boundary):]
 			self.post_state = 0
 			# Fall through.
-		a = 20
 		while True:
 			if self.post_state == 0:
 				# Reading part headers.
@@ -1031,9 +1064,10 @@ class _Httpd_connection:	# {{{
 	def _finish_post(self):	# {{{
 		if not self.server.post(self):
 			self.socket.close()
-		for f in self.post[1]:
-			for g in self.post[1][f]:
-				os.remove(g[0])
+		if self.ct == 'multipart/form-data':
+			for f in self.post[1]:
+				for g in self.post[1][f]:
+					os.remove(g[0])
 		del self.post
 	# }}}
 	def _base64_decoder(self, data, final):	# {{{
@@ -1310,7 +1344,20 @@ class Httpd: # {{{
 				return
 		return self.exts[ext](connection, open(filename, 'rb').read())
 	# }}}
-	def post(self, connection):	# A non-WebSocket page was requested with POST.  Same as page() above, plus connection.post, which is a dict of name:(headers, sent_filename, local_filename).  When done, the local files are unlinked; remove the items from the dict to prevent this.  The default is to return an error (so POST cannot be used to retrieve static pages!) {{{
+	def post(self, connection):	# {{{
+		# A non-WebSocket page was requested with POST.
+		# Same as page() above, plus connection.post, which is
+		# For multipart/form-data:
+		# 	a dict of name:(headers, sent_filename, local_filename).
+		#	When done, the local files are unlinked;
+		#	remove the items from the dict to prevent this.
+		#	The default is to return an error (so POST cannot be
+		#	used to retrieve static pages!) 
+		# For text/plain:
+		#	a str, decoded using the charset,
+		#	or utf-8 if not specified.
+		# For application/x-www-form-urlencoded:
+		#	a dict of key:value pairs.
 		'''Handle POST request.
 		This function responds with an error by default.  It
 		must be overridden to handle POST requests.
