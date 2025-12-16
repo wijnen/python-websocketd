@@ -977,6 +977,8 @@ class _Httpd_connection:	# {{{
 						self.reply(socket, 400)	# bad request.
 						return
 					k, v = p.split(b'=')
+					k = k.replace(b'+', b' ')
+					v = v.replace(b'+', b' ')
 					self.post[unquote(k)] = unquote(v)
 			self._finish_post()
 			return
