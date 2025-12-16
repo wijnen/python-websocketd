@@ -973,6 +973,9 @@ class _Httpd_connection:	# {{{
 				parts = body.split(b'&')
 				self.post = {}
 				for p in parts:
+					if b'=' not in p:
+						self.reply(socket, 400)	# bad request.
+						return
 					k, v = p.split(b'=')
 					self.post[unquote(k)] = unquote(v)
 			self._finish_post()
