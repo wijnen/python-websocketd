@@ -1309,15 +1309,12 @@ class Httpd: # {{{
 			return
 		if path is None:
 			path = connection.address.path
-		if path == '/':
-			address = 'index'
-		else:
-			address = '/' + unquote(path) + '/'
-			while '/../' in address:
-				# Don't handle this; just ignore it.
-				pos = address.index('/../')
-				address = address[:pos] + address[pos + 3:]
-			address = address[1:-1]
+		address = '/' + unquote(path) + '/'
+		while '/../' in address:
+			# Don't handle this; just ignore it.
+			pos = address.index('/../')
+			address = address[:pos] + address[pos + 3:]
+		address = address[1:-1]
 		if '.' in address.rsplit('/', 1)[-1]:
 			base, ext = address.rsplit('.', 1)
 			base = base.strip('/')
@@ -1334,6 +1331,7 @@ class Httpd: # {{{
 				self.reply(connection, 404)
 				return
 		else:
+			address = address.strip('/') + '/index'
 			base = address.strip('/')
 			for ext in self.exts:
 				for d in self.httpdirs:
